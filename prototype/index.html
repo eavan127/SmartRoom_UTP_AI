@@ -88,9 +88,14 @@ main > .wrap > .hero:first-child{margin-top:24px;}
 .who{display:flex; align-items:center; gap:10px;}
 .av{width:30px; height:30px; border-radius:50%; background:var(--navy); color:#fff; font-weight:700; font-size:.85rem;
   display:flex; align-items:center; justify-content:center;}
-.av.ok{background:var(--sage);}
+.av.ok{background:var(--sage);} .av.staff{background:var(--gold);}
 .chip{padding:3px 12px; border-radius:999px; font-size:.78rem; font-weight:700;}
 .c-ok{background:var(--ok-soft); color:var(--sage-dark);} .c-wait{background:#EEE; color:#666;}
+.c-staff{background:var(--cream-soft); color:#5A4100; border:1px solid var(--gold-soft);}
+.check{display:flex; align-items:center; gap:14px; padding:14px 16px; border:1px solid var(--line); border-radius:12px;
+  background:#fff; cursor:pointer; font-size:1rem; margin-bottom:10px;}
+.check input{width:22px; height:22px; accent-color:var(--sage-dark);}
+.check.on{border-color:var(--sage); background:var(--ok-soft);}
 .progress{height:10px; border-radius:6px; background:#E6E6E6; overflow:hidden; margin-top:6px;}
 .progress div{height:100%; background:var(--sage); transition:width .3s;}
 .msg{border-radius:12px; padding:14px 18px; font-weight:600; font-size:1.02rem;}
@@ -202,7 +207,7 @@ const DEMO = new URLSearchParams(location.search).get("time");
 function now(){ const d=new Date(); if(DEMO){const [h,m]=DEMO.split(":"); d.setHours(+h,+m,0);} return d; }
 
 /* ---------------- state ---------------- */
-const S = {page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
+const S = {checks:{}, page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
            t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:""};
 
 const ICON = {
@@ -223,7 +228,8 @@ const ICON = {
 const $ = id => document.getElementById(id);
 const need = () => S.mode==="collect" ? CFG.needCollect : CFG.needReturn;
 const pending = () => S.booking.members.filter(m => !(m in S.verified));
-const approved = () => S.override || Object.keys(S.verified).length >= need();
+const approved = () => Object.keys(S.verified).length >= need();
+const byStaff = () => Object.keys(S.verified).filter(m => S.verified[m]==="staff");
 const locker = b => String(BOOKINGS.indexOf(b)+1).padStart(2,"0");
 const cardsOut = () => { const last={}; S.log.forEach(r => last[r.id]=r.action); return Object.keys(last).filter(k=>last[k]==="collect"); };
 const btn = (label, fn, cls="", icon="") => `<button class="btn ${cls}" onclick="${fn}">${icon?ICON[icon]:""}${label}</button>`;
@@ -237,7 +243,7 @@ function status(b){
 }
 
 function go(page){ S.page=page; render(); window.scrollTo(0,0); }
-function goHome(){ Object.assign(S,{page:"home",booking:null,verified:{},fails:0,msg:null,override:false,staffOk:false,prev:null}); render(); }
+function goHome(){ Object.assign(S,{page:"home",booking:null,verified:{},fails:0,msg:null,override:false,staffOk:false,prev:null,checks:{}}); render(); }
 function enterStaff(){ S.prev = S.page; go("staff"); }
 function exitStaff(){
   S.staffOk=false;
@@ -274,11 +280,12 @@ function steps(){
 function bookingPanel(showStatus){
   const b=S.booking, [st,cls]=status(b), n=Object.keys(S.verified).length, req=need();
   const rows = b.members.map(m=>{
-    const ok = m in S.verified;
-    const chip = showStatus ? (ok?'<span class="chip c-ok">✓ Verified</span>':'<span class="chip c-wait">Waiting</span>') : "";
-    return `<div class="member"><span class="who"><span class="av ${ok?"ok":""}">${m.split(" ")[1]}</span>${m}${m===b.by?" (booker)":""}</span>${chip}</div>`;
+    const ok = m in S.verified, staff = S.verified[m]==="staff";
+    const chip = !showStatus ? "" : staff ? '<span class="chip c-staff">✓ Staff checked</span>'
+               : ok ? '<span class="chip c-ok">✓ Verified</span>' : '<span class="chip c-wait">Waiting</span>';
+    return `<div class="member"><span class="who"><span class="av ${staff?"staff":ok?"ok":""}">${m.split(" ")[1]}</span>${m}${m===b.by?" (booker)":""}</span>${chip}</div>`;
   }).join("");
-  const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified</div>
+  const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified${byStaff().length?` <span class="sub">· ${byStaff().length} by staff card check</span>`:""}</div>
      <div class="progress"><div style="width:${Math.min(100,100*n/req)}%"></div></div>` : "";
   return `<div class="card"><div class="ct">Your booking</div><div class="cb">
     <h3>${b.room}<span class="badge ${cls}">${st}</span></h3>
@@ -351,10 +358,11 @@ result(){
   if (approved()){
     const what = collect ? "Take your <b>room key card</b> and <b>pencil case</b> (2 markers, 1 duster)."
                          : "Place the <b>room key card</b> and <b>pencil case</b> inside, then close the door.";
+    const n = Object.keys(S.verified).length;
     bar("", "Press the button after closing the locker door", btn(collect?"Card taken":"Card returned","finish()","primary","next"));
     return steps()+`<div class="grid"><div class="card result ok">${lockerSvg(true)}<div class="body">
         <h2 class="title ok">✓ Access approved</h2>
-        <p class="lead" style="margin:0">${S.override?"Approved by staff":"All students verified"}. <b>Locker ${locker(b)}</b> is now open.</p>
+        <p class="lead" style="margin:0">${S.override?`${n-byStaff().length} verified by face, ${byStaff().length} checked by staff`:"All students verified"}. <b>Locker ${locker(b)}</b> is now open.</p>
         <div class="msg m-ok">${what}</div></div></div>
       <div class="stack">${bookingPanel(true)}</div></div>`;
   }
@@ -394,10 +402,16 @@ staff(){
   const tabs = ["override","log","settings"].map(t=>`<button class="tab ${S.staffTab===t?"on":""}" onclick="S.staffTab='${t}';render()">${{override:"Override",log:"Card log",settings:"Settings"}[t]}</button>`).join("");
   let body = "";
   if (S.staffTab==="override"){
-    body = S.booking && !approved()
-      ? `<div class="msg m-info">${S.booking.room} · not verified: ${pending().join(", ")}</div>
-         <p class="sub">Check the students' cards manually, then approve.</p>
-         ${btn("Approve and open locker","S.override=true;S.staffOk=false;go('result')","primary","lock")}`
+    const todo = S.booking && !approved() ? pending() : [];
+    const ticked = todo.filter(m => S.checks[m]).length, short = need() - Object.keys(S.verified).length;
+    body = todo.length
+      ? `<div class="msg m-info">${S.booking.room} · ${S.booking.slot} · face not verified for ${todo.length} student(s)</div>
+         <p class="sub" style="margin:14px 0 10px">Check each student's card at the counter and tick them below.</p>
+         ${todo.map(m=>`<label class="check ${S.checks[m]?"on":""}"><input type="checkbox" ${S.checks[m]?"checked":""}
+            onchange="S.checks['${m}']=this.checked;render()"><span class="av">${m.split(" ")[1]}</span><b>${m}</b>
+            <span class="sub" style="margin-left:auto">Student card checked</span></label>`).join("")}
+         <div style="margin-top:14px"><button class="btn primary" ${ticked>=short?"":"disabled"} onclick="approveByStaff()">${ICON.lock}Approve and open locker</button>
+         <span class="sub" style="margin-left:12px">${ticked} of ${short} ticked</span></div>`
       : `<div class="msg m-info">No denied verification waiting. Requests appear here when a student presses Call staff.</div>`;
   } else if (S.staffTab==="log"){
     body = `<div class="card"><div class="cb"><table><tr><th>Time</th><th>Booking</th><th>Room</th><th>Action</th><th>Method</th><th>Students</th></tr>
@@ -419,7 +433,7 @@ staff(){
 
 /* ---------------- actions ---------------- */
 function pick(id){
-  Object.assign(S,{booking:BOOKINGS.find(b=>b.id===id), verified:{}, fails:0, msg:null, override:false, t0:Date.now(), query:""});
+  Object.assign(S,{booking:BOOKINGS.find(b=>b.id===id), verified:{}, fails:0, msg:null, override:false, t0:Date.now(), query:"", checks:{}});
   go("scan");
 }
 function scan(stranger){
@@ -437,8 +451,14 @@ function scan(stranger){
 function finish(){
   const b=S.booking;
   S.log.push({time:now().toTimeString().slice(0,8), id:b.id, room:b.room, action:S.mode,
-              method:S.override?"staff override":"face", students:Object.keys(S.verified).join("; ")||"-"});
+              method:S.override?"face + staff check":"face",
+              students:Object.keys(S.verified).map(m=>S.verified[m]==="staff"?`${m} (staff)`:m).join("; ")||"-"});
   go("done");
+}
+function approveByStaff(){
+  pending().filter(m => S.checks[m]).forEach(m => S.verified[m] = "staff");
+  Object.assign(S, {override:true, staffOk:false, checks:{}});
+  go("result");
 }
 function search(v){
   S.query=v; render(); const q=$("q"); q.focus(); q.setSelectionRange(v.length,v.length);

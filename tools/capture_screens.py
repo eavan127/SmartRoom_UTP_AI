@@ -58,7 +58,10 @@ def main(channel, width, height):
             click("Unknown face")
         shot("collect_denied")
         click("Call staff"); shot("staff_login")
-        staff_login(); shot("staff_override")
+        staff_login()
+        for box in page.locator(".check input").all():
+            box.check()
+        shot("staff_override")
         click("Approve and open locker"); shot("staff_override_approved")
         click("Card taken"); click("Finish")
 
