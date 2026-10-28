@@ -1,0 +1,10 @@
+[theme]
+# IRC palette (ulibrary.utp.edu.my)
+primaryColor = "#4F6B5D"
+backgroundColor = "#F3F3F3"
+secondaryBackgroundColor = "#EBE3C7"
+textColor = "#212529"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"

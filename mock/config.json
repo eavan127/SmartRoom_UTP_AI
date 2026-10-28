@@ -1,0 +1,8 @@
+{
+  "threshold": 0.363,
+  "min_required_collect": 4,
+  "min_required_return": 4,
+  "max_failed_scans": 3,
+  "simulation_mode": true,
+  "staff_pin": "1234"
+}

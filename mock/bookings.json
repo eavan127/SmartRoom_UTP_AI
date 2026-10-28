@@ -1,0 +1,41 @@
+{
+  "_note": "Mock iBEST bookings for the prototype. Student codes only, no names or IDs.",
+  "bookings": [
+    {
+      "booking_id": "IB-2026-1041",
+      "room": "Discussion Room 1",
+      "level": "Level 2",
+      "date": "today",
+      "slot": "09:00 - 11:00",
+      "booked_by": "Student A",
+      "members": ["Student A", "Student B", "Student C", "Student D"]
+    },
+    {
+      "booking_id": "IB-2026-1042",
+      "room": "Discussion Room 3",
+      "level": "Level 2",
+      "date": "today",
+      "slot": "11:00 - 13:00",
+      "booked_by": "Student E",
+      "members": ["Student E", "Student F", "Student G", "Student H"]
+    },
+    {
+      "booking_id": "IB-2026-1043",
+      "room": "Discussion Room 5",
+      "level": "Level 3",
+      "date": "today",
+      "slot": "14:00 - 16:00",
+      "booked_by": "Student B",
+      "members": ["Student B", "Student I", "Student J", "Student K"]
+    },
+    {
+      "booking_id": "IB-2026-1044",
+      "room": "Meeting Room 2",
+      "level": "Level 3",
+      "date": "today",
+      "slot": "16:00 - 18:00",
+      "booked_by": "Student L",
+      "members": ["Student L", "Student M", "Student N", "Student O"]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Privacy: never commit faces, ID photos, embeddings or trained models
+data/
+models/
+outputs/
+logs/
+*.npz
+*.pt
+*.pth
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.streamlit/secrets.toml

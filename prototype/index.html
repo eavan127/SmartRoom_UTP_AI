@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartRoom UTP Kiosk</title>
+<!--
+  SmartRoom UTP - IRC smart locker kiosk, clickable prototype.
+  Open this file in any browser. No server, no install. Face results are simulated.
+  Layout on every screen: top bar | mode strip | step tracker | main (left 2/3) + panel (right 1/3) | action bar
+  Every row uses the same .wrap (max 1280px, 32px side padding), so all edges line up at any width.
+-->
+<style>
+:root{
+  --navy:#324773; --navy-deep:#061E2F; --gold:#C48D0C; --gold-soft:#EDCF89;
+  --sage:#749082; --sage-dark:#4F6B5D; --cream:#EBE3C7; --cream-soft:#F6F2E4;
+  --bg:#F3F3F3; --ink:#212529; --muted:#5E5E5E; --line:#E3E3E3;
+  --danger:#A8322D; --danger-soft:#F7E3E1; --ok-soft:#E3EDE7;
+  --radius:14px; --gutter:32px; --top-h:76px; --bar-h:84px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Segoe UI", Segoe, Tahoma, Helvetica, Arial, sans-serif; font-size:16px;}
+button{font-family:inherit;}
+.wrap{max-width:1280px; margin:0 auto; padding:0 var(--gutter);}
+
+/* ---------- top bar ---------- */
+.topbar{background:#fff; box-shadow:0 2px 8px rgba(0,0,0,.06); position:sticky; top:0; z-index:20;}
+.topbar .wrap{height:var(--top-h); display:flex; align-items:center; gap:16px;}
+.brand{display:flex; align-items:center; gap:14px; margin-right:auto;}
+.brand .mark{font-family:Georgia,"Times New Roman",serif; font-size:2.3rem; line-height:1; color:var(--navy);
+  padding-left:12px; border-left:6px solid var(--gold);}
+.brand b{display:block; color:var(--navy); font-size:1.05rem;}
+.brand small{display:block; color:var(--muted); font-size:.74rem; letter-spacing:1px; text-transform:uppercase; margin-top:2px;}
+.clock{text-align:right; color:var(--navy); line-height:1.2; white-space:nowrap; padding-right:8px;}
+.clock b{display:block; font-size:1.4rem;} .clock span{font-size:.8rem; color:var(--muted);}
+.mode{color:#fff; text-align:center; font-weight:700; font-size:.76rem; letter-spacing:1px; text-transform:uppercase;
+  padding:4px 16px; background:var(--gold);}
+.mode.staff{background:var(--navy);}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:52px; padding:0 22px;
+  border-radius:999px; font-size:1.02rem; font-weight:700; cursor:pointer; border:2px solid var(--navy);
+  background:#fff; color:var(--navy); transition:background .15s, border-color .15s;}
+.btn:hover{border-color:var(--gold);}
+.btn.primary{background:var(--sage); border-color:var(--sage); color:#fff;}
+.btn.primary:hover{background:var(--sage-dark); border-color:var(--sage-dark);}
+.btn.gold{background:var(--gold); border-color:var(--gold); color:#fff;}
+.btn.ghost{border-color:#C9C9C9; color:var(--muted);}
+.btn.small{min-height:44px; padding:0 18px; font-size:.95rem;}
+.btn:disabled{border-color:#E0E0E0; color:#B0B0B0; background:#FAFAFA; cursor:default;}
+.btn svg{width:20px; height:20px; flex:none;}
+.btn.block{width:100%;}
+
+/* ---------- step tracker ---------- */
+.steps{display:grid; grid-template-columns:repeat(4,1fr); margin:24px 0; background:#fff; border-radius:var(--radius);
+  overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.step{display:flex; align-items:center; justify-content:center; gap:10px; height:54px; color:var(--muted);
+  font-weight:600; border-right:1px solid var(--line);}
+.step:last-child{border-right:none;}
+.step .n{width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:#E3E3E3; color:#555; font-size:.85rem; font-weight:700;}
+.step.done{color:var(--sage-dark);} .step.done .n{background:var(--sage); color:#fff;}
+.step.now{background:var(--navy); color:#fff;} .step.now .n{background:var(--gold); color:#fff;}
+
+/* ---------- page grid ---------- */
+main{padding-bottom:calc(var(--bar-h) + 24px);}
+main > .wrap > .hero:first-child{margin-top:24px;}
+.steps + .grid, .steps + .full{margin-top:0;}
+.grid{display:grid; grid-template-columns:minmax(0,2fr) minmax(300px,1fr); gap:24px; align-items:start;}
+.stack{display:flex; flex-direction:column; gap:16px;}
+.title{color:var(--navy); font-size:1.85rem; font-weight:700; margin:0;}
+.lead{color:var(--muted); font-size:1.05rem; margin:6px 0 0 0;}
+.head{margin-bottom:4px;}
+
+/* ---------- cards ---------- */
+.card{background:#fff; border-radius:var(--radius); box-shadow:0 1px 4px rgba(0,0,0,.07); overflow:hidden;}
+.card .ct{background:var(--cream); color:var(--navy-deep); font-weight:700; font-size:.78rem; letter-spacing:.6px;
+  text-transform:uppercase; padding:10px 20px;}
+.card .cb{padding:18px 20px;}
+.card h3{margin:0; color:var(--navy); font-size:1.2rem;}
+.sub{color:var(--muted); font-size:.92rem; line-height:1.5;}
+.badge{display:inline-block; padding:2px 10px; border-radius:999px; font-size:.75rem; font-weight:700; vertical-align:middle; margin-left:6px;}
+.b-now{background:var(--sage); color:#fff;} .b-next{background:var(--gold-soft); color:#5A4100;}
+.b-out{background:var(--navy); color:#fff;} .b-end{background:#DDD; color:#555;}
+.member{display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px dashed var(--line);}
+.member:last-child{border-bottom:none;}
+.who{display:flex; align-items:center; gap:10px;}
+.av{width:30px; height:30px; border-radius:50%; background:var(--navy); color:#fff; font-weight:700; font-size:.85rem;
+  display:flex; align-items:center; justify-content:center;}
+.av.ok{background:var(--sage);}
+.chip{padding:3px 12px; border-radius:999px; font-size:.78rem; font-weight:700;}
+.c-ok{background:var(--ok-soft); color:var(--sage-dark);} .c-wait{background:#EEE; color:#666;}
+.progress{height:10px; border-radius:6px; background:#E6E6E6; overflow:hidden; margin-top:6px;}
+.progress div{height:100%; background:var(--sage); transition:width .3s;}
+.msg{border-radius:12px; padding:14px 18px; font-weight:600; font-size:1.02rem;}
+.m-ok{background:var(--ok-soft); color:var(--sage-dark); border-left:6px solid var(--sage);}
+.m-bad{background:var(--danger-soft); color:var(--danger); border-left:6px solid var(--danger);}
+.m-info{background:var(--cream-soft); color:#5A4100; border-left:6px solid var(--gold);}
+.howto{list-style:none; padding:0; margin:0; counter-reset:s;}
+.howto li{counter-increment:s; display:flex; gap:12px; align-items:flex-start; margin:8px 0;}
+.howto li::before{content:counter(s); flex:0 0 28px; height:28px; border-radius:50%; background:var(--navy); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.9rem;}
+
+/* home */
+.hero{background:linear-gradient(120deg,var(--navy-deep),var(--navy)); color:#fff; border-radius:var(--radius); padding:32px 36px;}
+.hero h1{margin:0; font-size:2.1rem;} .hero p{margin:8px 0 0; color:#DFE6F3; font-size:1.1rem;}
+.tiles{display:grid; grid-template-columns:1fr 1fr; gap:24px; margin:24px 0;}
+.tile{border-radius:var(--radius); min-height:220px; cursor:pointer; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:12px; font-size:1.6rem; font-weight:700; box-shadow:0 4px 14px rgba(0,0,0,.08); border:3px solid;}
+.tile svg{width:52px; height:52px;}
+.tile span{font-size:.98rem; font-weight:400; opacity:.85;}
+.tile.collect{background:var(--navy); border-color:var(--navy); color:#fff;}
+.tile.collect:hover{background:var(--navy-deep);}
+.tile.return{background:#fff; border-color:var(--sage); color:var(--sage-dark);}
+.tile.return:hover{background:var(--ok-soft);}
+
+/* booking list */
+.search{width:100%; height:52px; border-radius:12px; border:1px solid #D5D5D5; padding:0 16px; font-size:1rem; background:#fff;}
+.search:focus{outline:2px solid var(--gold); border-color:transparent;}
+.bk{display:flex; align-items:center; gap:16px; padding:18px 20px;}
+.bk .info{flex:1; min-width:0;}
+.bk .btn{flex:none; width:140px;}
+
+/* camera */
+.cam{height:min(40vh,400px); min-height:270px; border-radius:var(--radius); position:relative; display:flex; align-items:center;
+  justify-content:center; background:radial-gradient(circle at 50% 45%,#2C3E5C 0%,#0B1A2A 75%);}
+.cam svg{height:78%;}
+.cam .msg{position:absolute; top:14px; left:14px; right:14px; box-shadow:0 2px 10px rgba(0,0,0,.25);}
+.cam .msg.m-info{background:#fff;}
+.cam .lbl{position:absolute; bottom:14px; left:0; right:0; text-align:center; color:#CFD8E6; font-size:.95rem;}
+.cam.flash{animation:flash .5s;}
+@keyframes flash{0%{box-shadow:0 0 0 0 rgba(237,207,137,.9)}100%{box-shadow:0 0 0 18px rgba(237,207,137,0)}}
+.scanrow{display:grid; grid-template-columns:3fr 1fr; gap:12px;}
+
+/* result */
+.result{display:flex; gap:32px; align-items:center; padding:24px;}
+.result.ok{border-top:8px solid var(--sage);} .result.bad{border-top:8px solid var(--danger);}
+.result .title.ok{color:var(--sage-dark);} .result .title.bad{color:var(--danger);}
+.result .body{display:flex; flex-direction:column; gap:12px; flex:1;}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+.three{display:grid; grid-template-columns:repeat(3,1fr); gap:24px; margin-top:24px;}
+
+/* staff */
+.tabs{display:flex; gap:4px; border-bottom:2px solid var(--line); margin-bottom:16px;}
+.tab{padding:12px 18px; cursor:pointer; font-weight:600; color:var(--muted); border:none; background:none; font-size:1rem;
+  border-bottom:3px solid transparent; margin-bottom:-2px;}
+.tab.on{color:var(--navy); border-bottom-color:var(--gold);}
+.field{display:flex; flex-direction:column; gap:6px; margin-bottom:16px;}
+.field label{font-weight:600; font-size:.92rem;}
+.field input[type=password],.field input[type=number]{height:48px; border-radius:10px; border:1px solid #D5D5D5; padding:0 14px; font-size:1rem; max-width:260px;}
+.field input[type=range]{accent-color:var(--sage-dark); max-width:420px;}
+table{width:100%; border-collapse:collapse; font-size:.9rem;}
+th,td{text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+td:nth-child(-n+5){white-space:nowrap;}
+th{color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.5px;}
+
+/* ---------- action bar ---------- */
+.actionbar{position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:1px solid #DDD; box-shadow:0 -2px 10px rgba(0,0,0,.06); z-index:20;}
+.actionbar .wrap{height:var(--bar-h); display:grid; grid-template-columns:240px 1fr 240px; align-items:center; gap:16px;}
+.actionbar .hint{text-align:center; color:var(--muted); font-size:.95rem;}
+.actionbar .slot{display:flex;} .actionbar .slot.r{justify-content:flex-end;}
+.actionbar .slot .btn{width:100%;}
+
+@media (max-width:900px){
+  .grid{grid-template-columns:1fr;} .tiles,.three{grid-template-columns:1fr;}
+  .clock{display:none;} .brand small{display:none;}
+  .actionbar .wrap{grid-template-columns:1fr 1fr;} .actionbar .hint{display:none;}
+  :root{--gutter:16px;}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><div class="mark">IRC</div><div><b>SmartRoom UTP</b><small>Discussion Room Smart Locker</small></div></div>
+    <div class="clock"><b id="time">--:--</b><span id="date"></span></div>
+    <button class="btn small" id="homeBtn" onclick="goHome()"></button>
+    <button class="btn small" id="staffBtn"></button>
+  </div>
+  <div class="mode" id="mode"></div>
+</header>
+<main><div class="wrap" id="app"></div></main>
+<footer class="actionbar"><div class="wrap">
+  <div class="slot" id="barL"></div><div class="hint" id="barHint"></div><div class="slot r" id="barR"></div>
+</div></footer>
+
+<script>
+/* ---------------- mock iBEST data (student codes only) ---------------- */
+const BOOKINGS = [
+  {id:"IB-2026-1041", room:"Discussion Room 1", level:"Level 2", slot:"09:00 - 11:00", by:"Student A", members:["Student A","Student B","Student C","Student D"]},
+  {id:"IB-2026-1042", room:"Discussion Room 3", level:"Level 2", slot:"11:00 - 13:00", by:"Student E", members:["Student E","Student F","Student G","Student H"]},
+  {id:"IB-2026-1043", room:"Discussion Room 5", level:"Level 3", slot:"14:00 - 16:00", by:"Student B", members:["Student B","Student I","Student J","Student K"]},
+  {id:"IB-2026-1044", room:"Meeting Room 2",    level:"Level 3", slot:"16:00 - 18:00", by:"Student L", members:["Student L","Student M","Student N","Student O"]},
+];
+const CFG = {threshold:0.36, needCollect:4, needReturn:4, maxFails:3, pin:"1234"};
+const STEPS = ["Choose booking","Face scan","Collect card","Done"];
+const STEP_OF = {select:0, scan:1, result:2, done:3};
+
+/* Demo clock: add ?time=09:20 to the URL to fix the time (used for screenshots) */
+const DEMO = new URLSearchParams(location.search).get("time");
+function now(){ const d=new Date(); if(DEMO){const [h,m]=DEMO.split(":"); d.setHours(+h,+m,0);} return d; }
+
+/* ---------------- state ---------------- */
+const S = {page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
+           t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:""};
+
+const ICON = {
+  home:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>',
+  staff:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>',
+  exit:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 17l1.4-1.4L8.8 13H20v-2H8.8l2.6-2.6L10 7l-5 5zM4 5h8V3H4a2 2 0 00-2 2v14a2 2 0 002 2h8v-2H4z"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg>',
+  next:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z"/></svg>',
+  key:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14a2 2 0 110-4 2 2 0 010 4zm5.6-4A6 6 0 101 12a6 6 0 0011.6 2H16v2h3v-2h2v-4z"/></svg>',
+  ret:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 7v4H5.8l3.6-3.6L8 6l-6 6 6 6 1.4-1.4L5.8 13H21V7z"/></svg>',
+  cam:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3L7.2 5H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V7a2 2 0 00-2-2h-3.2L15 3zm3 15a5 5 0 110-10 5 5 0 010 10zm0-2a3 3 0 100-6 3 3 0 000 6z"/></svg>',
+  retry:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.7 6.3A8 8 0 104 12h2a6 6 0 111.8 4.2L10 14H4v6l2.4-2.4A8 8 0 0017.7 6.3z"/></svg>',
+  help:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 17h-2v-2h2zm2.1-7.7l-.9.9c-.7.7-1.2 1.3-1.2 2.8h-2v-.5c0-1.1.4-2.1 1.2-2.8l1.2-1.3A2 2 0 1010 9H8a4 4 0 118 0c0 .9-.4 1.6-.9 2.3z"/></svg>',
+  lock:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17a2 2 0 100-4 2 2 0 000 4zm6-9h-1V6A5 5 0 007.1 5l1.9.6A3 3 0 0115 6v2H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V10a2 2 0 00-2-2z"/></svg>',
+};
+
+/* ---------------- helpers ---------------- */
+const $ = id => document.getElementById(id);
+const need = () => S.mode==="collect" ? CFG.needCollect : CFG.needReturn;
+const pending = () => S.booking.members.filter(m => !(m in S.verified));
+const approved = () => S.override || Object.keys(S.verified).length >= need();
+const locker = b => String(BOOKINGS.indexOf(b)+1).padStart(2,"0");
+const cardsOut = () => { const last={}; S.log.forEach(r => last[r.id]=r.action); return Object.keys(last).filter(k=>last[k]==="collect"); };
+const btn = (label, fn, cls="", icon="") => `<button class="btn ${cls}" onclick="${fn}">${icon?ICON[icon]:""}${label}</button>`;
+
+function status(b){
+  if (cardsOut().includes(b.id)) return ["Card out","b-out"];
+  const [s,e] = b.slot.split(" - ").map(t => { const [h,m]=t.split(":"); return +h*60+ +m; });
+  const n = now(), t = n.getHours()*60+n.getMinutes();
+  if (t>=s && t<=e) return ["Now","b-now"];
+  return t<s ? ["Upcoming","b-next"] : ["Ended","b-end"];
+}
+
+function go(page){ S.page=page; render(); window.scrollTo(0,0); }
+function goHome(){ Object.assign(S,{page:"home",booking:null,verified:{},fails:0,msg:null,override:false,staffOk:false,prev:null}); render(); }
+function enterStaff(){ S.prev = S.page; go("staff"); }
+function exitStaff(){
+  S.staffOk=false;
+  if (S.booking && (S.prev==="scan" || S.prev==="result")) go(approved() ? "result" : S.prev);
+  else goHome();
+}
+
+/* ---------------- shared pieces ---------------- */
+function chrome(){
+  const n = now();
+  $("time").textContent = n.toTimeString().slice(0,5);
+  $("date").textContent = n.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"short",year:"numeric"});
+  const h=$("homeBtn"); h.innerHTML = ICON.home+"Home"; h.disabled = S.page==="home";
+  const st=$("staffBtn");
+  if (S.page==="staff"){ st.className="btn small gold"; st.innerHTML=ICON.exit+"Exit staff"; st.onclick=exitStaff; }
+  else { st.className="btn small ghost"; st.innerHTML=ICON.staff+"Staff"; st.onclick=enterStaff; }
+  const m=$("mode");
+  if (S.page==="staff"){ m.className="mode staff"; m.textContent="Staff mode · press Exit staff (top right) to return to the student screen"; }
+  else { m.className="mode"; m.textContent="Face results are simulated for demonstration"; }
+}
+
+function bar(left, hint, right){
+  $("barL").innerHTML = left || ""; $("barHint").innerHTML = hint || ""; $("barR").innerHTML = right || "";
+}
+
+function steps(){
+  const cur = STEP_OF[S.page]; if (cur===undefined) return "";
+  return `<div class="steps">${STEPS.map((s,i)=>{
+    const name = i===2 ? (S.mode==="collect"?"Collect card":"Return card") : s;
+    const cls = i<cur?"done":i===cur?"now":"";
+    return `<div class="step ${cls}"><span class="n">${i<cur?"✓":i+1}</span>${name}</div>`;}).join("")}</div>`;
+}
+
+function bookingPanel(showStatus){
+  const b=S.booking, [st,cls]=status(b), n=Object.keys(S.verified).length, req=need();
+  const rows = b.members.map(m=>{
+    const ok = m in S.verified;
+    const chip = showStatus ? (ok?'<span class="chip c-ok">✓ Verified</span>':'<span class="chip c-wait">Waiting</span>') : "";
+    return `<div class="member"><span class="who"><span class="av ${ok?"ok":""}">${m.split(" ")[1]}</span>${m}${m===b.by?" (booker)":""}</span>${chip}</div>`;
+  }).join("");
+  const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified</div>
+     <div class="progress"><div style="width:${Math.min(100,100*n/req)}%"></div></div>` : "";
+  return `<div class="card"><div class="ct">Your booking</div><div class="cb">
+    <h3>${b.room}<span class="badge ${cls}">${st}</span></h3>
+    <div class="sub" style="margin-top:4px">${b.level} · ${b.slot} · ${b.id}<br>Locker ${locker(b)}</div>
+    <div style="margin-top:10px">${rows}</div>${prog}</div></div>`;
+}
+
+const helpCard = `<div class="card"><div class="ct">Need help?</div><div class="cb sub">
+  Go to the IRC User Advisory Desk, or press <b>Staff</b> at the top right.<br>Opening hours 09:00 - 22:00</div></div>`;
+
+/* ---------------- screens ---------------- */
+const SCREENS = {
+home(){
+  bar("", "Tap <b>Collect</b> or <b>Return</b> to start", "");
+  return `<div class="hero"><h1>Welcome to IRC Discussion Rooms</h1>
+      <p>Collect or return your room key card with face verification. No student card needed.</p></div>
+    <div class="tiles">
+      <div class="tile collect" onclick="S.mode='collect';go('select')">${ICON.key}Collect Room Card<span>I have a booking on iBEST</span></div>
+      <div class="tile return" onclick="S.mode='return';go('select')">${ICON.ret}Return Room Card<span>We have finished with the room</span></div>
+    </div>
+    <div class="card"><div class="ct">How it works</div><div class="cb"><ol class="howto">
+      <li>Choose your booking from today's iBEST list.</li>
+      <li>Every booked student looks at the camera, one at a time.</li>
+      <li>When all are verified, the locker opens with your key card and pencil case.</li></ol></div></div>`;
+},
+
+select(){
+  const collect = S.mode==="collect", out = cardsOut(), q = S.query.toLowerCase();
+  let items = BOOKINGS.filter(b => out.includes(b.id) !== collect);
+  if (q) items = items.filter(b => b.room.toLowerCase().includes(q) || b.members.some(m=>m.toLowerCase().includes(q)));
+  const list = items.length ? items.map(b=>{ const [st,cls]=status(b); return `
+    <div class="card"><div class="bk"><div class="info">
+      <h3>${b.room}<span class="badge ${cls}">${st}</span></h3>
+      <div class="sub" style="margin-top:4px">${b.slot} · ${b.level} · Booked by ${b.by}<br>${b.members.join(", ")}</div></div>
+      ${btn("Select",`pick('${b.id}')`,"primary")}</div></div>`;}).join("")
+    : `<div class="msg m-info">${collect?"No matching bookings. Check iBEST or ask IRC staff.":"No room cards are out at the moment."}</div>`;
+  bar(btn("Back","goHome()","","back"), "Can't find your booking? Ask staff at the counter.", "");
+  return steps()+`<div class="grid"><div class="stack">
+      <div class="head"><h2 class="title">${collect?"Choose your booking":"Which card are you returning?"}</h2>
+      <p class="lead">${collect?"Today's bookings":"Cards currently out"} · tap <b>Select</b> on your room</p></div>
+      <input class="search" id="q" placeholder="Search room or student code, e.g. Discussion Room 3 or Student A"
+        value="${S.query}" oninput="search(this.value)">
+      ${list}</div>
+    <div class="stack"><div class="card"><div class="ct">What happens next</div><div class="cb"><ol class="howto">
+      <li>Face scan for each booked student</li>
+      <li>${collect?"Locker opens with key card + pencil case":"Locker opens, place card + pencil case inside"}</li>
+      <li>Close the locker door</li></ol>
+      <div class="msg m-info" style="margin-top:12px;font-size:.92rem">All ${need()} booked students must be present.</div></div></div>
+      ${helpCard}</div></div>`;
+},
+
+scan(){
+  const msg = S.msg ? `<div class="msg m-${S.msg[0]}">${S.msg[1]}</div>` : `<div class="msg m-info">Student 1 of ${need()}: please step in front of the camera.</div>`;
+  bar(btn("Cancel","goHome()","","back"), `${Object.keys(S.verified).length} of ${need()} verified · ${pending().length} remaining`, "");
+  return steps()+`<div class="grid"><div class="stack">
+      <div class="head"><h2 class="title">Face scan</h2><p class="lead">One student at a time. Look at the camera and keep still.</p></div>
+      <div class="cam" id="cam">${msg}<svg viewBox="0 0 220 270" style="height:62%;margin-top:40px"><ellipse cx="110" cy="135" rx="95" ry="125" fill="none" stroke="#EDCF89" stroke-width="4" stroke-dasharray="14 10"/>
+        <circle cx="110" cy="105" r="42" fill="#5B6F8F"/><path d="M40 245c10-55 45-80 70-80s60 25 70 80" fill="#5B6F8F"/></svg>
+        <div class="lbl">Position your face inside the oval</div></div>
+      <div class="scanrow">${btn("Scan face","scan(false)","primary block","cam")}
+        <button class="btn ghost block" title="Simulates a person who is not on this booking" onclick="scan(true)">Unknown face</button></div>
+    </div>
+    <div class="stack">${bookingPanel(true)}
+      <div class="card"><div class="ct">Tips</div><div class="cb sub">Remove mask, cap or sunglasses · Face the light<br>
+        Attempts left: <b>${CFG.maxFails-S.fails}</b></div></div></div></div>`;
+},
+
+result(){
+  const b=S.booking, collect=S.mode==="collect";
+  if (approved()){
+    const what = collect ? "Take your <b>room key card</b> and <b>pencil case</b> (2 markers, 1 duster)."
+                         : "Place the <b>room key card</b> and <b>pencil case</b> inside, then close the door.";
+    bar("", "Press the button after closing the locker door", btn(collect?"Card taken":"Card returned","finish()","primary","next"));
+    return steps()+`<div class="grid"><div class="card result ok">${lockerSvg(true)}<div class="body">
+        <h2 class="title ok">✓ Access approved</h2>
+        <p class="lead" style="margin:0">${S.override?"Approved by staff":"All students verified"}. <b>Locker ${locker(b)}</b> is now open.</p>
+        <div class="msg m-ok">${what}</div></div></div>
+      <div class="stack">${bookingPanel(true)}</div></div>`;
+  }
+  bar(btn("Start over","goHome()","","back"), "Locker remains locked", "");
+  return steps()+`<div class="grid"><div class="card result bad">${lockerSvg(false)}<div class="body">
+      <h2 class="title bad">✕ Access denied</h2>
+      <p class="lead" style="margin:0">The locker stays closed. Not verified: <b>${pending().join(", ")}</b>.</p>
+      <div class="msg m-bad">All booked students must be present and recognised.</div>
+      <div class="two">${btn("Try again","S.fails=0;S.msg=null;go('scan')","primary","retry")}${btn("Call staff","enterStaff()","","help")}</div>
+    </div></div>
+    <div class="stack">${bookingPanel(true)}</div></div>`;
+},
+
+done(){
+  const b=S.booking, collect=S.mode==="collect", end=b.slot.split(" - ")[1], secs=Math.max(1,Math.round((Date.now()-S.t0)/1000));
+  bar("", "Logged with student codes only", btn("Finish","goHome()","primary","next"));
+  return steps()+`<div class="hero" style="text-align:center;padding:48px 36px">
+      <h1>${collect?"Enjoy your discussion!":"Thank you!"}</h1>
+      <p>${collect?`Please return the card to Locker ${locker(b)} by <b>${end}</b>.`:"Your card has been returned. The room is now released."}</p></div>
+    <div class="three">
+      <div class="card"><div class="ct">Room</div><div class="cb"><h3>${b.room}</h3><div class="sub">${b.level}</div></div></div>
+      <div class="card"><div class="ct">Time slot</div><div class="cb"><h3>${b.slot}</h3><div class="sub">${b.id}</div></div></div>
+      <div class="card"><div class="ct">Verification time</div><div class="cb"><h3>${secs} s</h3><div class="sub">${Object.keys(S.verified).length} students verified</div></div></div></div>`;
+},
+
+staff(){
+  const back = S.booking && (S.prev==="scan"||S.prev==="result") ? "Back to verification" : "Back to Home";
+  bar(btn(back,"exitStaff()","","back"), "Staff mode", "");
+  const side = `<div class="stack"><div class="card"><div class="ct">Privacy</div><div class="cb sub">
+      Logs and screens show student codes only. Face images stay on the kiosk and are deleted at the end of the course.</div></div></div>`;
+  if (!S.staffOk) return `<div class="grid" style="margin-top:24px"><div class="stack">
+      <div class="head"><h2 class="title">Staff login</h2><p class="lead">IRC counter staff only</p></div>
+      <div class="card"><div class="cb"><div class="field"><label for="pin">Staff PIN</label>
+        <input id="pin" type="password" maxlength="6" onkeydown="if(event.key==='Enter')login()"></div>
+        <div id="pinErr" class="sub" style="color:var(--danger);min-height:20px"></div>
+        ${btn("Log in","login()","primary")}</div></div></div>${side}</div>`;
+  const tabs = ["override","log","settings"].map(t=>`<button class="tab ${S.staffTab===t?"on":""}" onclick="S.staffTab='${t}';render()">${{override:"Override",log:"Card log",settings:"Settings"}[t]}</button>`).join("");
+  let body = "";
+  if (S.staffTab==="override"){
+    body = S.booking && !approved()
+      ? `<div class="msg m-info">${S.booking.room} · not verified: ${pending().join(", ")}</div>
+         <p class="sub">Check the students' cards manually, then approve.</p>
+         ${btn("Approve and open locker","S.override=true;S.staffOk=false;go('result')","primary","lock")}`
+      : `<div class="msg m-info">No denied verification waiting. Requests appear here when a student presses Call staff.</div>`;
+  } else if (S.staffTab==="log"){
+    body = `<div class="card"><div class="cb"><table><tr><th>Time</th><th>Booking</th><th>Room</th><th>Action</th><th>Method</th><th>Students</th></tr>
+      ${S.log.slice().reverse().map(r=>`<tr><td>${r.time}</td><td>${r.id}</td><td>${r.room}</td><td>${r.action}</td><td>${r.method}</td><td>${r.students}</td></tr>`).join("") || '<tr><td colspan="6" class="sub">No entries yet</td></tr>'}
+      </table><p class="sub">Cards currently out: ${cardsOut().join(", ")||"none"}</p></div></div>`;
+  } else {
+    body = `<div class="card"><div class="cb">
+      <div class="field"><label>Match threshold (cosine): <b id="thv">${CFG.threshold.toFixed(2)}</b></label>
+        <input type="range" min="0.2" max="0.8" step="0.01" value="${CFG.threshold}" oninput="CFG.threshold=+this.value;$('thv').textContent=(+this.value).toFixed(2)"></div>
+      <div class="field"><label>Students required to collect</label><input type="number" min="1" max="4" value="${CFG.needCollect}" onchange="CFG.needCollect=+this.value"></div>
+      <div class="field"><label>Students required to return</label><input type="number" min="1" max="4" value="${CFG.needReturn}" onchange="CFG.needReturn=+this.value"></div>
+      <p class="sub">Changes apply immediately for this session.</p></div></div>`;
+  }
+  return `<div class="grid" style="margin-top:24px"><div class="stack">
+      <div class="head"><h2 class="title">Staff panel</h2><p class="lead">IRC counter staff only</p></div>
+      <div><div class="tabs">${tabs}</div>${body}</div></div>${side}</div>`;
+},
+};
+
+/* ---------------- actions ---------------- */
+function pick(id){
+  Object.assign(S,{booking:BOOKINGS.find(b=>b.id===id), verified:{}, fails:0, msg:null, override:false, t0:Date.now(), query:""});
+  go("scan");
+}
+function scan(stranger){
+  const p = pending();
+  if (!stranger && p.length){
+    const score = 0.55 + Math.random()*0.3;
+    S.verified[p[0]] = score; S.fails = 0;
+    S.msg = ["ok", `✓ ${p[0]} verified (score ${score.toFixed(2)}). Next student, please.`];
+  } else {
+    S.fails++;
+    S.msg = ["bad", "Face not recognised as a student on this booking. Please try again."];
+  }
+  if (approved() || S.fails >= CFG.maxFails) go("result"); else { render(); window.scrollTo(0,0); $("cam").classList.add("flash"); }
+}
+function finish(){
+  const b=S.booking;
+  S.log.push({time:now().toTimeString().slice(0,8), id:b.id, room:b.room, action:S.mode,
+              method:S.override?"staff override":"face", students:Object.keys(S.verified).join("; ")||"-"});
+  go("done");
+}
+function search(v){
+  S.query=v; render(); const q=$("q"); q.focus(); q.setSelectionRange(v.length,v.length);
+}
+function login(){
+  if ($("pin").value===CFG.pin){ S.staffOk=true; render(); } else $("pinErr").textContent="Wrong PIN";
+}
+function lockerSvg(open){
+  const door = open ? '<path d="M150 20 L215 40 L215 220 L150 240 Z" fill="#DFE6F3" stroke="#324773" stroke-width="3"/>'
+                    : '<rect x="40" y="20" width="110" height="220" rx="6" fill="#324773"/>';
+  const inside = open ? '<rect x="58" y="120" width="74" height="48" rx="6" fill="#C48D0C"/><text x="95" y="150" font-size="13" fill="#fff" text-anchor="middle" font-weight="700" font-family="Segoe UI,Arial">KEY CARD</text><rect x="58" y="180" width="74" height="22" rx="6" fill="#749082"/>' : "";
+  return `<svg width="200" height="220" viewBox="0 0 240 260" style="flex:none"><rect x="40" y="20" width="110" height="220" rx="6" fill="#061E2F"/>${inside}${door}<circle cx="${open?205:138}" cy="130" r="5" fill="${open?"#749082":"#A8322D"}"/></svg>`;
+}
+
+function render(){ chrome(); $("app").innerHTML = SCREENS[S.page](); }
+render();
+setInterval(chrome, 30000);
+</script>
+</body>
+</html>
