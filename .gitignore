@@ -1,5 +1,12 @@
 # Privacy: never commit faces, ID photos, embeddings or trained models
-data/
+# Only the folder layout (README.md, .gitkeep) under data/ is tracked
+data/**
+!data/**/
+!data/**/README.md
+!data/**/.gitkeep
+*.jpg
+*.jpeg
+*.heic
 models/
 outputs/
 logs/
