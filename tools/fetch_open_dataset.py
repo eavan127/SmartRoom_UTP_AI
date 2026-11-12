@@ -35,6 +35,7 @@ FIRST_M = ["Aiman", "Hakim", "Danish", "Irfan", "Haziq", "Wei Jie", "Jun Hao", "
 # People (for the default seed 42) whose photos look female, checked by eye so the fake name fits the face.
 # If you change --seed or --count, check the photos again and update this set.
 FEMALE = {1, 3, 8, 13, 17, 18, 22, 28, 31, 40, 41}
+BASE = 41
 LAST = ["Rahman", "Ismail", "Hassan", "Yusof", "Aziz", "Tan", "Lim", "Wong", "Lee", "Ng",
         "Kumar", "Raj", "Pillai", "Nair", "Ahmad", "Chong", "Teo", "Sim", "Musa", "Osman"]
 PROGRAMMES = ["Computer Science", "Information Technology", "Chemical Engineering", "Petroleum Engineering",
@@ -43,8 +44,9 @@ PROGRAMMES = ["Computer Science", "Information Technology", "Chemical Engineerin
 
 def fake_profiles(count, rng):
     """Unique fake names and student IDs (99xxxxxx, never a real UTP ID)."""
-    pools = {True: rng.sample([f"{f} {l}" for f in FIRST_F for l in LAST], count),
-             False: rng.sample([f"{f} {l}" for f in FIRST_M for l in LAST], count)}
+    # Shuffle the whole pool so person N keeps the same name whatever --count is
+    pools = {True: rng.sample([f"{f} {l}" for f in FIRST_F for l in LAST], len(FIRST_F) * len(LAST)),
+             False: rng.sample([f"{f} {l}" for f in FIRST_M for l in LAST], len(FIRST_M) * len(LAST))}
     return [{"name": pools[i in FEMALE].pop(), "student_id": f"99{i:06d}", "programme": rng.choice(PROGRAMMES)}
             for i in range(1, count + 1)]
 
@@ -55,7 +57,10 @@ def main(count, seed):
     lfw = DOWNLOADS / "lfw_home" / "lfw_funneled"
 
     people = sorted(p for p in lfw.iterdir() if p.is_dir() and len(list(p.glob("*.jpg"))) >= 2)
-    chosen = random.Random(seed).sample(people, count)
+    # The first 41 are fixed; extra people are drawn from the rest, so 001-041 never change
+    rng = random.Random(seed)
+    chosen = rng.sample(people, BASE)
+    chosen = chosen[:count] + rng.sample([p for p in people if p not in chosen], max(0, count - BASE))
 
     profiles = fake_profiles(count, random.Random(seed + 1))
 
@@ -87,7 +92,7 @@ def main(count, seed):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--count", type=int, default=41, help="people to add, e.g. 100 minus usable UTP students")
+    ap.add_argument("--count", type=int, default=44, help="people to add, e.g. 100 minus usable UTP students")
     ap.add_argument("--seed", type=int, default=42)
     a = ap.parse_args()
     main(a.count, a.seed)

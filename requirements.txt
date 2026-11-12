@@ -2,3 +2,8 @@ streamlit>=1.40
 opencv-python>=4.8
 numpy>=1.26
 pandas>=2.0
+# dataset preparation
+scikit-learn>=1.3      # downloads LFW
+pillow>=10.0
+pillow-heif>=0.16      # iPhone .HEIC photos
+pymupdf>=1.23          # PDF student ID cards

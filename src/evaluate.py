@@ -1,6 +1,7 @@
 """Evaluate the pretrained model with mock 4-student bookings.
 
-- Enrol: first image of each student (the ID photo).  Probe: remaining images.
+- Enrol: 1.jpg of each person (the ID card face, or the first face photo).  Probe: the other images.
+- People with a single photo are enrolled but never probed (they still make the matching harder).
 - Threshold is chosen on the validation split, results are reported on the test split.
 - Genuine trial: a booked student's probe must match that student.
 - Impostor trial: a non-booked student's probe must be rejected.
@@ -24,39 +25,43 @@ SPLITS = ROOT / "data" / "splits"
 
 
 def load_split(model, split):
-    enrol, probes = {}, {}
+    enrol, probes, source = {}, {}, {}
     for d in sorted((SPLITS / split).iterdir()):
-        embs = [model.embed(cv2.imread(str(p))) for p in sorted(d.glob("*.jpg"))]
+        embs = [model.embed(cv2.imread(str(p))) for p in sorted(d.glob("*.jpg"), key=lambda p: int(p.stem))]
         embs = [e for e in embs if e is not None]
+        if not embs:
+            continue
+        enrol[d.name] = [embs[0]]
         if len(embs) >= 2:
-            enrol[d.name] = [embs[0]]
             probes[d.name] = embs[1:]
-    return enrol, probes
+        source[d.name] = json.loads((d / "info.json").read_text()).get("source", "")
+    return enrol, probes, source
 
 
-def trials(enrol, probes, n_bookings, rng):
-    """Return list of (score, is_genuine, seconds) over mock bookings of 4."""
+def trials(enrol, probes, source, n_bookings, rng):
+    """Return list of (score, is_genuine, seconds, source of the probed person) over mock bookings of 4."""
     codes = list(enrol)
     out = []
     for _ in range(n_bookings):
         booked = rng.sample(codes, 4)
-        outsiders = [c for c in codes if c not in booked]
+        outsiders = [c for c in codes if c not in booked and c in probes]
         for code in booked:
-            for emb in probes[code]:
+            for emb in probes.get(code, []):
                 t = time.perf_counter()
                 hit, score = match_face(emb, enrol, booked, -1.0)
-                out.append((score if hit == code else -1.0, True, time.perf_counter() - t))
+                out.append((score if hit == code else -1.0, True, time.perf_counter() - t, source[code]))
         for code in rng.sample(outsiders, min(4, len(outsiders))):
             emb = rng.choice(probes[code])
             t = time.perf_counter()
             _, score = match_face(emb, enrol, booked, -1.0)
-            out.append((score, False, time.perf_counter() - t))
+            out.append((score, False, time.perf_counter() - t, source[code]))
     return out
 
 
-def rates(results, thr):
-    gen = [s for s, g, _ in results if g]
-    imp = [s for s, g, _ in results if not g]
+def rates(results, thr, only=None):
+    results = [r for r in results if only is None or r[3] == only]
+    gen = [s for s, g, _, _ in results if g]
+    imp = [s for s, g, _, _ in results if not g]
     frr = float(np.mean([s < thr for s in gen])) if gen else 0.0
     far = float(np.mean([s >= thr for s in imp])) if imp else 0.0
     correct = sum(s >= thr for s in gen) + sum(s < thr for s in imp)
@@ -82,13 +87,14 @@ def main(n_bookings, target_far, seed=0):
     embed_s = (time.perf_counter() - t) / 10
 
     test = trials(*load_split(model, "test"), n_bookings, rng)
-    far, frr, acc = rates(test, thr)
-    match_s = float(np.mean([s for _, _, s in test]))
-    report = {
-        "threshold": thr, "far": far, "frr": frr, "accuracy": acc,
-        "seconds_per_verification": embed_s + match_s, "test_trials": len(test),
-    }
-    print(json.dumps(report, indent=2))
+    match_s = float(np.mean([s for _, _, s, _ in test]))
+    print(f"\nTest set ({len(test)} trials), threshold {thr:.3f}")
+    print(f"{'':16}{'accuracy':>10}{'FAR':>8}{'FRR':>8}")
+    for label, only in (("All 100 people", None), ("UTP students", "UTP survey"), ("LFW (public)", "LFW (public)")):
+        far_s, frr_s, acc_s = rates(test, thr, only)
+        print(f"{label:16}{acc_s:>10.1%}{far_s:>8.1%}{frr_s:>8.1%}")
+    print(f"Seconds per verification: {embed_s + match_s:.3f}")
+    print("FAR = stranger let in, FRR = booked student rejected")
 
     cfg = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     cfg["threshold"] = thr

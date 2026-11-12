@@ -31,19 +31,34 @@ class FaceModel:
 
     def detect(self, img):
         """Return the largest face row [x, y, w, h, landmarks..., score] or None."""
+        # Phone photos are large; YuNet misses big faces, so detect on a copy at most 960 px wide
         h, w = img.shape[:2]
-        self.detector.setInputSize((w, h))
-        _, faces = self.detector.detect(img)
+        scale = min(1.0, 960 / max(h, w))
+        small = cv2.resize(img, (round(w * scale), round(h * scale))) if scale < 1 else img
+        self.detector.setInputSize((small.shape[1], small.shape[0]))
+        _, faces = self.detector.detect(small)
         if faces is None or len(faces) == 0:
             return None
-        return max(faces, key=lambda f: f[2] * f[3])
+        face = max(faces, key=lambda f: f[2] * f[3]).copy()
+        face[:14] /= scale  # box and 5 landmarks back to full-size coordinates
+        return face
+
+    def align(self, img):
+        """Return the 112x112 aligned face the recognizer uses, or None if no face is found."""
+        face = self.detect(img)
+        return None if face is None else self.recognizer.alignCrop(img, face)
 
     def embed(self, img):
-        """Return an L2-normalised 128-d embedding for the largest face, or None."""
-        face = self.detect(img)
-        if face is None:
+        """Return an L2-normalised 128-d embedding for the largest face, or None.
+
+        A 112x112 image is taken as an already aligned face (saved by prepare_data), so it is
+        not detected again; detection often fails on such tight crops.
+        """
+        if img is None:
             return None
-        aligned = self.recognizer.alignCrop(img, face)
+        aligned = img if img.shape[:2] == (112, 112) else self.align(img)
+        if aligned is None:
+            return None
         feat = self.recognizer.feature(aligned).flatten()
         return feat / np.linalg.norm(feat)
 
