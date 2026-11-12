@@ -517,9 +517,9 @@ async function syncCamera(){
     STREAM = null; chrome(); $("app").innerHTML = SCREENS[S.page]();
   }
 }
-function bestMatch(emb){
+function bestMatch(emb, codes = S.booking.members){  // default: only the students on this booking
   let best = {code:null, score:-1};
-  for (const code of S.booking.members)            // only the students on this booking
+  for (const code of codes)
     for (const ref of S.gallery[code] || []){
       const sc = Face.cosine(emb, ref);
       if (sc > best.score) best = {code, score:sc};
@@ -540,7 +540,17 @@ async function scanLive(){
     if (code && score >= CFG.threshold){
       if (code in S.verified) S.msg = ["info", `${code} is already verified. Next student, please.`];
       else { S.verified[code] = score; S.fails = 0; S.msg = ["ok", `✓ ${code} verified (score ${score.toFixed(2)}). Next student, please.`]; }
-    } else { S.fails++; S.msg = ["bad", `Face not recognised as a student on this booking (best score ${Math.max(0,score).toFixed(2)}). Please try again.`]; }
+    } else {
+      // Explain why, so a wrong booking or missing enrolment is obvious
+      S.fails++;
+      const other = bestMatch(r.emb, Object.keys(S.gallery).filter(c => !S.booking.members.includes(c)));
+      const enrolled = S.booking.members.filter(m => S.gallery[m]).length;
+      S.msg = ["bad", !enrolled
+        ? "No student on this booking is enrolled on this device yet. Ask staff to enrol faces (Staff → Enrol faces)."
+        : other.code && other.score >= CFG.threshold
+        ? `This face matches ${other.code} (score ${other.score.toFixed(2)}), who is not on this booking. Choose the right booking.`
+        : `Face not recognised as a student on this booking (best score ${Math.max(0,score).toFixed(2)}, needs ${CFG.threshold.toFixed(2)}). Face the camera in good light and try again.`];
+    }
   }
   if (approved() || S.fails >= CFG.maxFails) go("result"); else { render(); $("cam").classList.add("flash"); }
 }
