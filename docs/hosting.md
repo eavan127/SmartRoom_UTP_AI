@@ -60,6 +60,17 @@ To test without your team: open `data/demo_test_photos/<room>/` on your phone (t
 not the one enrolled), choose that room's booking on the kiosk, and hold each photo up to the webcam.
 UTP students are never included here, because the site is public.
 
+## Sharing captured faces with teammates
+
+Faces captured with **Capture face** are saved in that browser only. To give a teammate the same enrolments:
+
+1. On your kiosk: Staff → **Enrol faces** → **Export faces**. A file `smartroom-faces-<date>.json` downloads.
+2. Send it to the teammate privately (team WhatsApp or the private team Drive). It holds face data (128 numbers per face, no photos), so never post it publicly or commit it (git ignores `smartroom-faces*.json`).
+3. On their kiosk (hosted site or localhost): Staff → **Enrol faces** → **Import faces** → choose the file.
+
+Importing adds to what is already there and skips faces it already has, so it is safe to import the same file twice
+or to combine files from several teammates. Bookings still reset every time the page opens; faces stay.
+
 ## Demo checklist
 
 1. Open the hosted link on the laptop that will act as the kiosk and allow the camera.

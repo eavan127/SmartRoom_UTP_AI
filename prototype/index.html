@@ -235,7 +235,7 @@ if (!DEMO){ const h = Math.min(now().getHours(), 21), p = n => String(n).padStar
 
 /* ---------------- state ---------------- */
 const S = {checks:{}, page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
-           t0:0, staffOk:false, staffTab:"override", prev:null, log: store.get("log", []), query:"",
+           t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:"",  /* bookings start fresh on every open */
            /* live camera by default; ?sim forces simulation (used by the screenshot script) */
            live: !new URLSearchParams(location.search).has("sim") && store.get("live", true),
            gallery: store.get("gallery", {}), model:"idle", modelPct:0, busy:false, enrolCode:"Student A", enrolMsg:null};
@@ -467,7 +467,10 @@ staff(){
         <p class="sub" style="margin:0">Capture 2-3 times per student at slightly different angles. For the demo, enrol your team members as Student A-D.</p>
       </div></div></div>
       <div class="card" style="margin-top:16px"><div class="cb"><table><tr><th>Code</th><th>Faces enrolled</th><th></th></tr>${rows}</table>
-      <div style="margin-top:12px">${btn("Delete all enrolments","unenrol()","ghost")}</div></div></div>`;
+      <div class="row" style="margin-top:12px">${btn("Export faces","exportFaces()")}
+        <label class="btn">Import faces<input type="file" accept=".json,application/json" hidden onchange="importFaces(this.files[0])"></label>
+        ${btn("Delete all enrolments","unenrol()","ghost")}</div>
+      <p class="sub" style="margin-top:8px">Export saves every captured face to a file; a teammate imports it on their kiosk. The file holds face data: share it only privately within the team.</p></div></div>`;
   } else if (S.staffTab==="log"){
     body = `<div class="card"><div class="cb"><table><tr><th>Time</th><th>Booking</th><th>Room</th><th>Action</th><th>Method</th><th>Students</th></tr>
       ${S.log.slice().reverse().map(r=>`<tr><td>${r.time}</td><td>${r.id}</td><td>${r.room}</td><td>${r.action}</td><td>${r.method}</td><td>${r.students}</td></tr>`).join("") || '<tr><td colspan="6" class="sub">No entries yet</td></tr>'}
@@ -594,6 +597,38 @@ function enrolFile(file){
   img.onerror = () => { S.enrolMsg = ["bad","This file could not be opened. Use a JPG or PNG photo."]; render(); };
   img.src = URL.createObjectURL(file);
 }
+/* Share captures between kiosks: a JSON file of the 128 numbers per face (no photos) */
+function exportFaces(){
+  const n = Object.values(S.gallery).reduce((a, f) => a + f.length, 0);
+  if (!n){ S.enrolMsg = ["bad", "Nothing to export yet. Capture some faces first."]; render(); return; }
+  const file = {type:"smartroom-faces", version:1, exported:new Date().toISOString(), gallery:S.gallery};
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(file)], {type:"application/json"}));
+  a.download = `smartroom-faces-${new Date().toISOString().slice(0,10)}.json`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  S.enrolMsg = ["ok", `Exported ${n} face${n>1?"s":""} of ${Object.keys(S.gallery).length} student(s). Send the file to your teammate privately.`]; render();
+}
+async function importFaces(f){
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.type !== "smartroom-faces" || typeof data.gallery !== "object") throw new Error("not a SmartRoom faces file");
+    let added = 0;
+    for (const [code, list] of Object.entries(data.gallery)){
+      const have = S.gallery[code] ||= [];
+      for (const emb of list){
+        if (Array.isArray(emb) && emb.length === 128 && !have.some(h => h.every((v, i) => v === emb[i]))){ have.push(emb); added++; }
+      }
+      if (!have.length) delete S.gallery[code];
+    }
+    store.set("gallery", S.gallery);
+    S.enrolMsg = ["ok", `Imported ${added} new face${added===1?"":"s"} (duplicates skipped).`];
+  } catch (e) {
+    console.error(e);
+    S.enrolMsg = ["bad", "This file could not be imported. Choose a file made with Export faces."];
+  }
+  render();
+}
 function unenrol(code){
   if (code) delete S.gallery[code];
   else if (confirm("Delete every enrolled face on this device?")) S.gallery = {};
@@ -603,15 +638,15 @@ function unenrol(code){
 function setLive(on){ S.live = on; store.set("live", on); render(); }
 function resetBookings(){
   if (!confirm("Reset all bookings? The card log is cleared; enrolled faces stay.")) return;
-  S.log = []; store.set("log", S.log); render();
+  S.log = []; render();
 }
+try { localStorage.removeItem("smartroom.log"); } catch {}  // drop a card log saved by an older version
 
 function finish(){
   const b=S.booking;
   S.log.push({time:now().toTimeString().slice(0,8), id:b.id, room:b.room, action:S.mode,
               method:S.override?"face + staff check":"face",
               students:Object.keys(S.verified).map(m=>S.verified[m]==="staff"?`${m} (staff)`:m).join("; ")||"-"});
-  store.set("log", S.log);
   go("done");
 }
 function approveByStaff(){

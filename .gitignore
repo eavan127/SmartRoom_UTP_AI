@@ -8,6 +8,7 @@ data/**
 *.jpeg
 *.heic
 prototype/local_gallery.js
+smartroom-faces*.json
 models/
 outputs/
 logs/
