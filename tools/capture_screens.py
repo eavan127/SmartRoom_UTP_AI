@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "screenshots"
-PAGE = (ROOT / "prototype" / "index.html").as_uri() + "?time=09:20"
+PAGE = (ROOT / "prototype" / "index.html").as_uri() + "?time=09:20&sim"
 
 
 def main(channel, width, height):

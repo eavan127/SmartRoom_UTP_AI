@@ -17,9 +17,8 @@ If you re-run `evaluate.py` and the threshold changes, update `CFG.threshold` in
 
 ## Live mode vs simulation
 
-- **Simulation** (default): no camera, results are simulated. Used for the screenshots.
-- **Live**: Staff (PIN `1234`) → Settings → tick **Live camera and face model**, or open the page with `?live=1`.
-  The first time, the model downloads (about 39 MB) and the browser asks for camera permission.
+- **Live** (default): the browser asks for camera permission; the first time, the model downloads (about 39 MB).
+- **Simulation**: no camera, results are simulated. Turn it on with Staff (PIN `1234`) → Settings → untick **Live camera and face model**, or open the page with `?sim`. The screenshot script uses this.
 
 ## Run on your laptop
 
@@ -29,7 +28,7 @@ The camera only works on `https://` or `localhost`, so start a tiny local server
 python -m http.server 8000
 ```
 
-Then open <http://localhost:8000/prototype/?live=1>.
+Then open <http://localhost:8000/prototype/>.
 
 ## Host online
 
@@ -40,7 +39,7 @@ The repo already contains `.github/workflows/pages.yml`, which publishes only th
 1. Push the workflow and `prototype/` to the `main` branch.
 2. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 3. Open the **Actions** tab and wait for "Deploy kiosk to GitHub Pages" to turn green (about 1 minute).
-4. The site is at **https://eavan127.github.io/SmartRoom_UTP_AI/** (add `?live=1` for the camera).
+4. The site is at **https://eavan127.github.io/SmartRoom_UTP_AI/** (camera is on by default).
 
 Every later push that changes `prototype/` redeploys automatically.
 GitHub Pages is free for public repos. For a private repo you need GitHub Pro, which is free with the GitHub Student Developer Pack.
@@ -51,9 +50,19 @@ GitHub Pages is free for public repos. For a private repo you need GitHub Pro, w
 2. Drag the `prototype` folder onto the page.
 3. Netlify gives you an `https://….netlify.app` link. To update, drag the folder again.
 
+## Built-in demo people (works with no enrolment)
+
+`prototype/demo_gallery.js` pre-enrols the booking members with public LFW faces (made by `python tools/export_demo_gallery.py`):
+Student A-O = LFW people 001-015, with their fake names and student IDs. On a match the kiosk shows e.g.
+"✓ Student A: Sarah Rahman (99000001) verified".
+
+To test without your team: open `data/demo_test_photos/<room>/` on your phone (these are each person's *other* photo,
+not the one enrolled), choose that room's booking on the kiosk, and hold each photo up to the webcam.
+UTP students are never included here, because the site is public.
+
 ## Demo checklist
 
-1. Open the hosted link with `?live=1` on the laptop that will act as the kiosk.
+1. Open the hosted link on the laptop that will act as the kiosk and allow the camera.
 2. Staff → Enrol faces: enrol each team member 2-3 times as Student A, B, C, D.
 3. Exit staff → Collect Room Card → Discussion Room 1 → each member presses **Scan face**.
 4. Record the scenarios (all verified, stranger, missing member + staff override, return).

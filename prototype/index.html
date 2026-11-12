@@ -202,6 +202,7 @@ th{color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercas
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
 <script src="face.js"></script>
+<script src="demo_gallery.js"></script>
 <script>
 /* ---------------- mock iBEST data (student codes only) ---------------- */
 const BOOKINGS = [
@@ -229,7 +230,8 @@ function now(){ const d=new Date(); if(DEMO){const [h,m]=DEMO.split(":"); d.setH
 /* ---------------- state ---------------- */
 const S = {checks:{}, page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
            t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:"",
-           live: new URLSearchParams(location.search).has("live") || store.get("live", false),
+           /* live camera by default; ?sim forces simulation (used by the screenshot script) */
+           live: !new URLSearchParams(location.search).has("sim") && store.get("live", true),
            gallery: store.get("gallery", {}), model:"idle", modelPct:0, busy:false, enrolCode:"Student A", enrolMsg:null};
 
 const ICON = {
@@ -249,6 +251,9 @@ const ICON = {
 /* ---------------- helpers ---------------- */
 const $ = id => document.getElementById(id);
 const need = () => S.mode==="collect" ? CFG.needCollect : CFG.needReturn;
+const DEMO_FACES = window.DEMO_GALLERY || {};
+const faces = code => [...(S.gallery[code] || []), ...(DEMO_FACES[code]?.faces || [])];
+const who = code => DEMO_FACES[code] ? `${DEMO_FACES[code].name} (${DEMO_FACES[code].student_id})` : code;
 const pending = () => S.booking.members.filter(m => !(m in S.verified));
 const approved = () => Object.keys(S.verified).length >= need();
 const byStaff = () => Object.keys(S.verified).filter(m => S.verified[m]==="staff");
@@ -306,8 +311,9 @@ function bookingPanel(showStatus){
     const ok = m in S.verified, staff = S.verified[m]==="staff";
     const chip = !showStatus ? "" : staff ? '<span class="chip c-staff">✓ Staff checked</span>'
                : ok ? '<span class="chip c-ok">✓ Verified</span>'
-               : S.live && !S.gallery[m] ? '<span class="chip c-none">Not enrolled</span>' : '<span class="chip c-wait">Waiting</span>';
-    return `<div class="member"><span class="who"><span class="av ${staff?"staff":ok?"ok":""}">${m.split(" ")[1]}</span>${m}${m===b.by?" (booker)":""}</span>${chip}</div>`;
+               : S.live && !faces(m).length ? '<span class="chip c-none">Not enrolled</span>' : '<span class="chip c-wait">Waiting</span>';
+    const sub = DEMO_FACES[m] ? `<span class="sub" style="display:block;font-size:.8rem">${DEMO_FACES[m].name} · ${DEMO_FACES[m].student_id}</span>` : "";
+    return `<div class="member"><span class="who"><span class="av ${staff?"staff":ok?"ok":""}">${m.split(" ")[1]}</span><span>${m}${m===b.by?" (booker)":""}${sub}</span></span>${chip}</div>`;
   }).join("");
   const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified${byStaff().length?` <span class="sub">· ${byStaff().length} by staff card check</span>`:""}</div>
      <div class="progress"><div style="width:${Math.min(100,100*n/req)}%"></div></div>` : "";
@@ -440,7 +446,8 @@ staff(){
       : `<div class="msg m-info">No denied verification waiting. Requests appear here when a student presses Call staff.</div>`;
   } else if (S.staffTab==="enrol"){
     const em = S.enrolMsg ? `<div class="msg m-${S.enrolMsg[0]}" style="margin-bottom:12px">${S.enrolMsg[1]}</div>` : "";
-    const rows = CODES.map(c => `<tr><td>${c}</td><td>${(S.gallery[c]||[]).length || '<span class="sub">-</span>'}</td>
+    const rows = CODES.map(c => `<tr><td>${c}${DEMO_FACES[c]?` <span class="sub">· ${DEMO_FACES[c].name}</span>`:""}</td>
+      <td>${(S.gallery[c]||[]).length || '<span class="sub">-</span>'}${DEMO_FACES[c]?' <span class="sub">+ 1 demo</span>':""}</td>
       <td>${S.gallery[c] ? `<button class="tab" style="padding:4px 8px" onclick="unenrol('${c}')">Remove</button>` : ""}</td></tr>`).join("");
     body = `${em}<div class="card"><div class="cb enrolgrid">
       <div><div class="enrolcam"><video id="video" autoplay playsinline muted></video></div>
@@ -520,7 +527,7 @@ async function syncCamera(){
 function bestMatch(emb, codes = S.booking.members){  // default: only the students on this booking
   let best = {code:null, score:-1};
   for (const code of codes)
-    for (const ref of S.gallery[code] || []){
+    for (const ref of faces(code)){
       const sc = Face.cosine(emb, ref);
       if (sc > best.score) best = {code, score:sc};
     }
@@ -538,17 +545,17 @@ async function scanLive(){
   else {
     const {code, score} = bestMatch(r.emb);
     if (code && score >= CFG.threshold){
-      if (code in S.verified) S.msg = ["info", `${code} is already verified. Next student, please.`];
-      else { S.verified[code] = score; S.fails = 0; S.msg = ["ok", `✓ ${code} verified (score ${score.toFixed(2)}). Next student, please.`]; }
+      if (code in S.verified) S.msg = ["info", `${who(code)} is already verified. Next student, please.`];
+      else { S.verified[code] = score; S.fails = 0; S.msg = ["ok", `✓ ${code}: ${who(code)} verified (score ${score.toFixed(2)}). Next student, please.`]; }
     } else {
       // Explain why, so a wrong booking or missing enrolment is obvious
       S.fails++;
-      const other = bestMatch(r.emb, Object.keys(S.gallery).filter(c => !S.booking.members.includes(c)));
-      const enrolled = S.booking.members.filter(m => S.gallery[m]).length;
+      const other = bestMatch(r.emb, CODES.filter(c => !S.booking.members.includes(c)));
+      const enrolled = S.booking.members.filter(m => faces(m).length).length;
       S.msg = ["bad", !enrolled
         ? "No student on this booking is enrolled on this device yet. Ask staff to enrol faces (Staff → Enrol faces)."
         : other.code && other.score >= CFG.threshold
-        ? `This face matches ${other.code} (score ${other.score.toFixed(2)}), who is not on this booking. Choose the right booking.`
+        ? `This face matches ${other.code}: ${who(other.code)} (score ${other.score.toFixed(2)}), who is not on this booking. Choose the right booking.`
         : `Face not recognised as a student on this booking (best score ${Math.max(0,score).toFixed(2)}, needs ${CFG.threshold.toFixed(2)}). Face the camera in good light and try again.`];
     }
   }
