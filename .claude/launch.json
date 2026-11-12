@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "streamlit", "run", "app/kiosk.py", "--server.headless", "true", "--server.port", "8501"],
       "port": 8501
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8000", "--bind", "127.0.0.1"],
+      "port": 8000
     }
   ]
 }

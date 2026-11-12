@@ -135,6 +135,16 @@ main > .wrap > .hero:first-child{margin-top:24px;}
 .cam .msg.m-info{background:#fff;}
 .cam .lbl{position:absolute; bottom:14px; left:0; right:0; text-align:center; color:#CFD8E6; font-size:.95rem;}
 .cam.flash{animation:flash .5s;}
+.cam video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:var(--radius); transform:scaleX(-1);}
+.cam svg, .cam .lbl, .cam .msg{z-index:1;}
+.enrolgrid{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start;}
+.enrolgrid .stack{gap:12px;}
+.enrolcam{position:relative; aspect-ratio:4/3; background:#0B1A2A; border-radius:12px; overflow:hidden;}
+@media (max-width:900px){ .enrolgrid{grid-template-columns:1fr;} }
+.enrolcam video{width:100%; height:100%; object-fit:cover; transform:scaleX(-1);}
+.c-none{background:var(--danger-soft); color:var(--danger);}
+.row{display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+select.pick{height:48px; border-radius:10px; border:1px solid #D5D5D5; padding:0 12px; font-size:1rem; min-width:180px;}
 @keyframes flash{0%{box-shadow:0 0 0 0 rgba(237,207,137,.9)}100%{box-shadow:0 0 0 18px rgba(237,207,137,0)}}
 .scanrow{display:grid; grid-template-columns:3fr 1fr; gap:12px;}
 
@@ -190,6 +200,8 @@ th{color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercas
   <div class="slot" id="barL"></div><div class="hint" id="barHint"></div><div class="slot r" id="barR"></div>
 </div></footer>
 
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
+<script src="face.js"></script>
 <script>
 /* ---------------- mock iBEST data (student codes only) ---------------- */
 const BOOKINGS = [
@@ -198,7 +210,15 @@ const BOOKINGS = [
   {id:"IB-2026-1043", room:"Discussion Room 5", level:"Level 3", slot:"14:00 - 16:00", by:"Student B", members:["Student B","Student I","Student J","Student K"]},
   {id:"IB-2026-1044", room:"Meeting Room 2",    level:"Level 3", slot:"16:00 - 18:00", by:"Student L", members:["Student L","Student M","Student N","Student O"]},
 ];
-const CFG = {threshold:0.36, needCollect:4, needReturn:4, maxFails:3, pin:"1234"};
+/* threshold 0.41 = chosen on the validation set by src/evaluate.py (UTP test accuracy 92.3%) */
+const CFG = {threshold:0.41, needCollect:4, needReturn:4, maxFails:3, pin:"1234"};
+
+/* ---------------- device storage (enrolled faces = 128 numbers each, never photos) ---------------- */
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem("smartroom." + k)) ?? d; } catch { return d; } },
+  set(k, v){ try { localStorage.setItem("smartroom." + k, JSON.stringify(v)); } catch {} },
+};
+const CODES = [...new Set(BOOKINGS.flatMap(b => b.members))].sort((a,b) => a.length-b.length || a.localeCompare(b));
 const STEPS = ["Choose booking","Face scan","Collect card","Done"];
 const STEP_OF = {select:0, scan:1, result:2, done:3};
 
@@ -208,7 +228,9 @@ function now(){ const d=new Date(); if(DEMO){const [h,m]=DEMO.split(":"); d.setH
 
 /* ---------------- state ---------------- */
 const S = {checks:{}, page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
-           t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:""};
+           t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:"",
+           live: new URLSearchParams(location.search).has("live") || store.get("live", false),
+           gallery: store.get("gallery", {}), model:"idle", modelPct:0, busy:false, enrolCode:"Student A", enrolMsg:null};
 
 const ICON = {
   home:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>',
@@ -262,6 +284,7 @@ function chrome(){
   else { st.className="btn small ghost"; st.innerHTML=ICON.staff+"Staff"; st.onclick=enterStaff; }
   const m=$("mode");
   if (S.page==="staff"){ m.className="mode staff"; m.textContent="Staff mode · press Exit staff (top right) to return to the student screen"; }
+  else if (S.live){ m.className="mode"; m.textContent="Live face recognition · the face model runs on this device"; }
   else { m.className="mode"; m.textContent="Face results are simulated for demonstration"; }
 }
 
@@ -282,7 +305,8 @@ function bookingPanel(showStatus){
   const rows = b.members.map(m=>{
     const ok = m in S.verified, staff = S.verified[m]==="staff";
     const chip = !showStatus ? "" : staff ? '<span class="chip c-staff">✓ Staff checked</span>'
-               : ok ? '<span class="chip c-ok">✓ Verified</span>' : '<span class="chip c-wait">Waiting</span>';
+               : ok ? '<span class="chip c-ok">✓ Verified</span>'
+               : S.live && !S.gallery[m] ? '<span class="chip c-none">Not enrolled</span>' : '<span class="chip c-wait">Waiting</span>';
     return `<div class="member"><span class="who"><span class="av ${staff?"staff":ok?"ok":""}">${m.split(" ")[1]}</span>${m}${m===b.by?" (booker)":""}</span>${chip}</div>`;
   }).join("");
   const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified${byStaff().length?` <span class="sub">· ${byStaff().length} by staff card check</span>`:""}</div>
@@ -342,11 +366,12 @@ scan(){
   bar(btn("Cancel","goHome()","","back"), `${Object.keys(S.verified).length} of ${need()} verified · ${pending().length} remaining`, "");
   return steps()+`<div class="grid"><div class="stack">
       <div class="head"><h2 class="title">Face scan</h2><p class="lead">One student at a time. Look at the camera and keep still.</p></div>
-      <div class="cam" id="cam">${msg}<svg viewBox="0 0 220 270" style="height:62%;margin-top:40px"><ellipse cx="110" cy="135" rx="95" ry="125" fill="none" stroke="#EDCF89" stroke-width="4" stroke-dasharray="14 10"/>
-        <circle cx="110" cy="105" r="42" fill="#5B6F8F"/><path d="M40 245c10-55 45-80 70-80s60 25 70 80" fill="#5B6F8F"/></svg>
-        <div class="lbl">Position your face inside the oval</div></div>
-      <div class="scanrow">${btn("Scan face","scan(false)","primary block","cam")}
-        <button class="btn ghost block" title="Simulates a person who is not on this booking" onclick="scan(true)">Unknown face</button></div>
+      <div class="cam" id="cam">${S.live?'<video id="video" autoplay playsinline muted></video>':""}${msg}<svg viewBox="0 0 220 270" style="height:62%;margin-top:40px"><ellipse cx="110" cy="135" rx="95" ry="125" fill="none" stroke="#EDCF89" stroke-width="4" stroke-dasharray="14 10"/>
+        ${S.live?"":'<circle cx="110" cy="105" r="42" fill="#5B6F8F"/><path d="M40 245c10-55 45-80 70-80s60 25 70 80" fill="#5B6F8F"/>'}</svg>
+        <div class="lbl">${S.live?modelText():"Position your face inside the oval"}</div></div>
+      ${S.live ? `<button class="btn primary block" onclick="scanLive()" ${S.busy||S.model!=="ready"?"disabled":""}>${ICON.cam}${S.busy?"Checking…":"Scan face"}</button>`
+        : `<div class="scanrow">${btn("Scan face","scan(false)","primary block","cam")}
+        <button class="btn ghost block" title="Simulates a person who is not on this booking" onclick="scan(true)">Unknown face</button></div>`}
     </div>
     <div class="stack">${bookingPanel(true)}
       <div class="card"><div class="ct">Tips</div><div class="cb sub">Remove mask, cap or sunglasses · Face the light<br>
@@ -392,14 +417,14 @@ staff(){
   const back = S.booking && (S.prev==="scan"||S.prev==="result") ? "Back to verification" : "Back to Home";
   bar(btn(back,"exitStaff()","","back"), "Staff mode", "");
   const side = `<div class="stack"><div class="card"><div class="ct">Privacy</div><div class="cb sub">
-      Logs and screens show student codes only. Face images stay on the kiosk and are deleted at the end of the course.</div></div></div>`;
+      Logs and screens show student codes only. Enrolled faces are kept on this device only, as 128 numbers per face (no photos), and can be deleted under Enrol faces.</div></div></div>`;
   if (!S.staffOk) return `<div class="grid" style="margin-top:24px"><div class="stack">
       <div class="head"><h2 class="title">Staff login</h2><p class="lead">IRC counter staff only</p></div>
       <div class="card"><div class="cb"><div class="field"><label for="pin">Staff PIN</label>
         <input id="pin" type="password" maxlength="6" onkeydown="if(event.key==='Enter')login()"></div>
         <div id="pinErr" class="sub" style="color:var(--danger);min-height:20px"></div>
         ${btn("Log in","login()","primary")}</div></div></div>${side}</div>`;
-  const tabs = ["override","log","settings"].map(t=>`<button class="tab ${S.staffTab===t?"on":""}" onclick="S.staffTab='${t}';render()">${{override:"Override",log:"Card log",settings:"Settings"}[t]}</button>`).join("");
+  const tabs = ["override","enrol","log","settings"].map(t=>`<button class="tab ${S.staffTab===t?"on":""}" onclick="S.staffTab='${t}';render()">${{override:"Override",enrol:"Enrol faces",log:"Card log",settings:"Settings"}[t]}</button>`).join("");
   let body = "";
   if (S.staffTab==="override"){
     const todo = S.booking && !approved() ? pending() : [];
@@ -413,12 +438,30 @@ staff(){
          <div style="margin-top:14px"><button class="btn primary" ${ticked>=short?"":"disabled"} onclick="approveByStaff()">${ICON.lock}Approve and open locker</button>
          <span class="sub" style="margin-left:12px">${ticked} of ${short} ticked</span></div>`
       : `<div class="msg m-info">No denied verification waiting. Requests appear here when a student presses Call staff.</div>`;
+  } else if (S.staffTab==="enrol"){
+    const em = S.enrolMsg ? `<div class="msg m-${S.enrolMsg[0]}" style="margin-bottom:12px">${S.enrolMsg[1]}</div>` : "";
+    const rows = CODES.map(c => `<tr><td>${c}</td><td>${(S.gallery[c]||[]).length || '<span class="sub">-</span>'}</td>
+      <td>${S.gallery[c] ? `<button class="tab" style="padding:4px 8px" onclick="unenrol('${c}')">Remove</button>` : ""}</td></tr>`).join("");
+    body = `${em}<div class="card"><div class="cb enrolgrid">
+      <div><div class="enrolcam"><video id="video" autoplay playsinline muted></video></div>
+        <p class="sub" id="enrolStatus" style="margin-top:8px">${modelText()}</p></div>
+      <div class="stack">
+        <div class="field" style="margin:0"><label>Student code</label>
+          <select class="pick" onchange="S.enrolCode=this.value">${CODES.map(c=>`<option ${c===S.enrolCode?"selected":""}>${c}</option>`).join("")}</select></div>
+        <button class="btn primary block" onclick="enrolCamera()" ${S.busy||S.model!=="ready"?"disabled":""}>${ICON.cam}${S.busy?"Checking…":"Capture face"}</button>
+        <label class="btn block" ${S.model!=="ready"?'style="opacity:.5;pointer-events:none"':""}>Upload photo (JPG/PNG)<input type="file" accept="image/jpeg,image/png" hidden onchange="enrolFile(this.files[0])"></label>
+        <p class="sub" style="margin:0">Capture 2-3 times per student at slightly different angles. For the demo, enrol your team members as Student A-D.</p>
+      </div></div></div>
+      <div class="card" style="margin-top:16px"><div class="cb"><table><tr><th>Code</th><th>Faces enrolled</th><th></th></tr>${rows}</table>
+      <div style="margin-top:12px">${btn("Delete all enrolments","unenrol()","ghost")}</div></div></div>`;
   } else if (S.staffTab==="log"){
     body = `<div class="card"><div class="cb"><table><tr><th>Time</th><th>Booking</th><th>Room</th><th>Action</th><th>Method</th><th>Students</th></tr>
       ${S.log.slice().reverse().map(r=>`<tr><td>${r.time}</td><td>${r.id}</td><td>${r.room}</td><td>${r.action}</td><td>${r.method}</td><td>${r.students}</td></tr>`).join("") || '<tr><td colspan="6" class="sub">No entries yet</td></tr>'}
       </table><p class="sub">Cards currently out: ${cardsOut().join(", ")||"none"}</p></div></div>`;
   } else {
     body = `<div class="card"><div class="cb">
+      <label class="check ${S.live?"on":""}"><input type="checkbox" ${S.live?"checked":""} onchange="setLive(this.checked)">
+        <b>Live camera and face model</b><span class="sub" style="margin-left:auto">Off = simulated results</span></label>
       <div class="field"><label>Match threshold (cosine): <b id="thv">${CFG.threshold.toFixed(2)}</b></label>
         <input type="range" min="0.2" max="0.8" step="0.01" value="${CFG.threshold}" oninput="CFG.threshold=+this.value;$('thv').textContent=(+this.value).toFixed(2)"></div>
       <div class="field"><label>Students required to collect</label><input type="number" min="1" max="4" value="${CFG.needCollect}" onchange="CFG.needCollect=+this.value"></div>
@@ -448,6 +491,90 @@ function scan(stranger){
   }
   if (approved() || S.fails >= CFG.maxFails) go("result"); else { render(); window.scrollTo(0,0); $("cam").classList.add("flash"); }
 }
+/* ---------------- live camera + face model ---------------- */
+let STREAM = null;
+function modelText(){
+  return {idle:"Face model not loaded yet", loading:`Loading face model… ${Math.round(S.modelPct*100)}% (about 39 MB, first time only)`,
+          ready:"Face model ready", error:"Face model could not load. Check the internet connection, or turn off live mode in Settings."}[S.model];
+}
+function ensureModel(){
+  if (S.model==="loading" || S.model==="ready") return;
+  S.model="loading";
+  Face.load(p => { S.modelPct=p; document.querySelectorAll(".cam .lbl, #enrolStatus").forEach(e => e.textContent = modelText()); })
+    .then(() => { S.model="ready"; render(); }, e => { console.error(e); S.model="error"; render(); });
+}
+async function syncCamera(){
+  const want = (S.live && S.page==="scan") || (S.page==="staff" && S.staffOk && S.staffTab==="enrol");
+  if (!want){ if (STREAM){ STREAM.getTracks().forEach(t=>t.stop()); STREAM=null; } return; }
+  ensureModel();
+  try {
+    if (!STREAM) STREAM = await navigator.mediaDevices.getUserMedia({video:{width:640, height:480, facingMode:"user"}});
+    const v = $("video"); if (v && v.srcObject !== STREAM) v.srcObject = STREAM;
+  } catch (e) {
+    console.error(e);
+    const m = ["bad", "Camera not available. Allow camera access in the browser, or turn off live mode in Settings."];
+    if (S.page==="scan") S.msg = m; else S.enrolMsg = m;
+    STREAM = null; chrome(); $("app").innerHTML = SCREENS[S.page]();
+  }
+}
+function bestMatch(emb){
+  let best = {code:null, score:-1};
+  for (const code of S.booking.members)            // only the students on this booking
+    for (const ref of S.gallery[code] || []){
+      const sc = Face.cosine(emb, ref);
+      if (sc > best.score) best = {code, score:sc};
+    }
+  return best;
+}
+async function scanLive(){
+  const v = $("video");
+  if (!v || !v.videoWidth || S.busy) return;
+  const frame = Face.toCanvas(v);                  // freeze the frame before re-rendering
+  S.busy = true; render();
+  let r = null;
+  try { r = await Face.embed(frame); } catch (e) { console.error(e); }
+  S.busy = false;
+  if (!r){ S.fails++; S.msg = ["bad","No face found. Look straight at the camera, remove mask or cap."]; }
+  else {
+    const {code, score} = bestMatch(r.emb);
+    if (code && score >= CFG.threshold){
+      if (code in S.verified) S.msg = ["info", `${code} is already verified. Next student, please.`];
+      else { S.verified[code] = score; S.fails = 0; S.msg = ["ok", `✓ ${code} verified (score ${score.toFixed(2)}). Next student, please.`]; }
+    } else { S.fails++; S.msg = ["bad", `Face not recognised as a student on this booking (best score ${Math.max(0,score).toFixed(2)}). Please try again.`]; }
+  }
+  if (approved() || S.fails >= CFG.maxFails) go("result"); else { render(); $("cam").classList.add("flash"); }
+}
+async function addEnrolment(src){
+  const frame = Face.toCanvas(src);
+  S.busy = true; render();
+  let r = null;
+  try { r = await Face.embed(frame); } catch (e) { console.error(e); }
+  S.busy = false;
+  if (!r) S.enrolMsg = ["bad", "No face found. Try again with the face clearly visible."];
+  else {
+    (S.gallery[S.enrolCode] ||= []).push(r.emb.map(v => +v.toFixed(5)));
+    store.set("gallery", S.gallery);
+    const n = S.gallery[S.enrolCode].length;
+    S.enrolMsg = ["ok", `${S.enrolCode} enrolled (${n} face${n>1?"s":""}).`];
+  }
+  render();
+}
+function enrolCamera(){ const v = $("video"); if (v && v.videoWidth) addEnrolment(v); }
+function enrolFile(file){
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => { addEnrolment(img); URL.revokeObjectURL(img.src); };
+  img.onerror = () => { S.enrolMsg = ["bad","This file could not be opened. Use a JPG or PNG photo."]; render(); };
+  img.src = URL.createObjectURL(file);
+}
+function unenrol(code){
+  if (code) delete S.gallery[code];
+  else if (confirm("Delete every enrolled face on this device?")) S.gallery = {};
+  else return;
+  store.set("gallery", S.gallery); S.enrolMsg = null; render();
+}
+function setLive(on){ S.live = on; store.set("live", on); render(); }
+
 function finish(){
   const b=S.booking;
   S.log.push({time:now().toTimeString().slice(0,8), id:b.id, room:b.room, action:S.mode,
@@ -473,7 +600,7 @@ function lockerSvg(open){
   return `<svg width="200" height="220" viewBox="0 0 240 260" style="flex:none"><rect x="40" y="20" width="110" height="220" rx="6" fill="#061E2F"/>${inside}${door}<circle cx="${open?205:138}" cy="130" r="5" fill="${open?"#749082":"#A8322D"}"/></svg>`;
 }
 
-function render(){ chrome(); $("app").innerHTML = SCREENS[S.page](); }
+function render(){ chrome(); $("app").innerHTML = SCREENS[S.page](); syncCamera(); }
 render();
 setInterval(chrome, 30000);
 </script>
