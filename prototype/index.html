@@ -229,10 +229,12 @@ const STEP_OF = {select:0, scan:1, result:2, done:3};
 /* Demo clock: add ?time=09:20 to the URL to fix the time (used for screenshots) */
 const DEMO = new URLSearchParams(location.search).get("time");
 function now(){ const d=new Date(); if(DEMO){const [h,m]=DEMO.split(":"); d.setHours(+h,+m,0);} return d; }
+/* Discussion Room 1 is the recording booking: its slot always covers the current time (unless ?time= is given) */
+if (!DEMO){ const h = Math.min(now().getHours(), 21), p = n => String(n).padStart(2,"0"); BOOKINGS[0].slot = `${p(h)}:00 - ${p(h+2)}:00`; }
 
 /* ---------------- state ---------------- */
 const S = {checks:{}, page:"home", mode:"collect", booking:null, verified:{}, fails:0, msg:null, override:false,
-           t0:0, staffOk:false, staffTab:"override", prev:null, log:[], query:"",
+           t0:0, staffOk:false, staffTab:"override", prev:null, log: store.get("log", []), query:"",
            /* live camera by default; ?sim forces simulation (used by the screenshot script) */
            live: !new URLSearchParams(location.search).has("sim") && store.get("live", true),
            gallery: store.get("gallery", {}), model:"idle", modelPct:0, busy:false, enrolCode:"Student A", enrolMsg:null};
@@ -468,7 +470,9 @@ staff(){
   } else if (S.staffTab==="log"){
     body = `<div class="card"><div class="cb"><table><tr><th>Time</th><th>Booking</th><th>Room</th><th>Action</th><th>Method</th><th>Students</th></tr>
       ${S.log.slice().reverse().map(r=>`<tr><td>${r.time}</td><td>${r.id}</td><td>${r.room}</td><td>${r.action}</td><td>${r.method}</td><td>${r.students}</td></tr>`).join("") || '<tr><td colspan="6" class="sub">No entries yet</td></tr>'}
-      </table><p class="sub">Cards currently out: ${cardsOut().join(", ")||"none"}</p></div></div>`;
+      </table><p class="sub">Cards currently out: ${cardsOut().join(", ")||"none"}</p>
+      <div class="row" style="margin-top:12px">${btn("Reset bookings for a new recording","resetBookings()","","retry")}
+        <span class="sub">Clears this log so every room can be collected again. Enrolled faces are kept.</span></div></div></div>`;
   } else {
     body = `<div class="card"><div class="cb">
       <label class="check ${S.live?"on":""}"><input type="checkbox" ${S.live?"checked":""} onchange="setLive(this.checked)">
@@ -596,12 +600,17 @@ function unenrol(code){
   store.set("gallery", S.gallery); S.enrolMsg = null; render();
 }
 function setLive(on){ S.live = on; store.set("live", on); render(); }
+function resetBookings(){
+  if (!confirm("Reset all bookings? The card log is cleared; enrolled faces stay.")) return;
+  S.log = []; store.set("log", S.log); render();
+}
 
 function finish(){
   const b=S.booking;
   S.log.push({time:now().toTimeString().slice(0,8), id:b.id, room:b.room, action:S.mode,
               method:S.override?"face + staff check":"face",
               students:Object.keys(S.verified).map(m=>S.verified[m]==="staff"?`${m} (staff)`:m).join("; ")||"-"});
+  store.set("log", S.log);
   go("done");
 }
 function approveByStaff(){

@@ -23,6 +23,14 @@ from src.face_model import FaceModel  # noqa: E402
 UTP = ROOT / "data" / "utp"
 OUT_JS = ROOT / "prototype" / "local_gallery.js"
 GROUP = 4
+# Demo booking Discussion Room 1 (Student A-D) = the project team, replacing the LFW demo faces locally.
+# folder in data/utp, or None = no photo collected (enrol with the camera under Staff -> Enrol faces)
+TEAM = {
+    "Student A": ("013", "Eavan Tan", "24006152"),
+    "Student B": ("019", "Nur Alyaa Nabilah", "25014139"),
+    "Student C": ("031", "Margareta Vieira", "24007376"),
+    "Student D": ("023", "Ivy Rachel Richard", "25014556"),
+}
 
 
 def main():
@@ -44,12 +52,18 @@ def main():
         bookings.append({"id": f"UTP-TEST-{g:02d}", "room": f"Test Group {g:02d}", "level": "Level 2",
                          "slot": f"{start:02d}:00 - {start + 2:02d}:00", "by": members[0], "members": members})
 
+    for code, (num, name, sid) in TEAM.items():
+        faces = gallery[f"UTP {num}"]["faces"] if num else []
+        gallery[code] = {"name": name, "student_id": sid, "faces": faces}
+        print(f"{code} = {name} ({sid}): {len(faces) or 'no'} photo(s)" + ("" if num else ", enrol with the camera"))
+    print()
+
     OUT_JS.write_text(
         "/* LOCAL ONLY - real UTP students' face data. Never commit or deploy (see .gitignore). */\n"
         f"window.LOCAL_GALLERY = {json.dumps(gallery)};\n"
         f"window.LOCAL_BOOKINGS = {json.dumps(bookings)};\n", encoding="utf-8")
 
-    print(f"{len(gallery)} UTP students enrolled ({sum(len(v['faces']) for v in gallery.values())} photos), "
+    print(f"{len(codes)} UTP students enrolled, "
           f"{len(bookings)} test bookings -> {OUT_JS.relative_to(ROOT)}\n")
     for b in bookings:
         print(f"  {b['room']}: " + ", ".join(f"{m} {gallery[m]['name']}" for m in b["members"]))
