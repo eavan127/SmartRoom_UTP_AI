@@ -112,11 +112,49 @@ const Face = (() => {
     return { a, b, tx: md[0] - (a * ms[0] - b * ms[1]), ty: md[1] - (b * ms[0] + a * ms[1]) };
   }
 
+  /* Copy region [x, y, w, h] of a canvas into a new canvas of size out x out (zooms in or out). */
+  function zoom(canvas, [x, y, w, h], out) {
+    const c = document.createElement("canvas");
+    c.width = c.height = out;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, out, out);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, x, y, w, h, 0, 0, out, out);
+    return c;
+  }
+
+  /* Detect in `region` of the canvas zoomed to `out` px; landmarks come back in canvas pixels. */
+  async function detectIn(canvas, region, out) {
+    const f = await detect(zoom(canvas, region, out));
+    if (!f) return null;
+    const k = region[2] / out;
+    f.kps = f.kps.map(([px, py]) => [region[0] + px * k, region[1] + py * k]);
+    f.box = [region[0] + f.box[0] * k, region[1] + f.box[1] * k, f.box[2] * k, f.box[3] * k];
+    return f;
+  }
+
+  /* Find the face like a camera that focuses: whole frame first (or the centre oval if nothing is
+   * found), then zoom into a square around the face and detect again for precise eye/nose/mouth points.
+   * Small faces (a phone held up, a tall photo) otherwise get rough landmarks and a poor match. */
+  async function findFace(canvas) {
+    const W = canvas.width, H = canvas.height;
+    let face = await detect(canvas);
+    if (!face) {
+      const side = Math.min(W, H) * 0.7;               // the oval area in the middle of the camera
+      face = await detectIn(canvas, [(W - side) / 2, (H - side) / 2, side, side], SIZE);
+    }
+    if (!face) return null;
+    const [bx, by, bw, bh] = face.box;
+    const side = Math.max(bw, bh) * 2.2;
+    const refined = await detectIn(canvas, [bx + bw / 2 - side / 2, by + bh / 2 - side / 2, side, side], 320);
+    return refined || face;
+  }
+
   /* 128 numbers (unit length) for the face, or null if no face is found. */
   async function embed(src) {
     if (!ready()) throw new Error("Face model not loaded");
     const canvas = toCanvas(src);
-    const face = await detect(canvas);
+    const face = await findFace(canvas);
     if (!face) return null;
     const { a, b, tx, ty } = similarity(face.kps);
     const al = document.createElement("canvas");

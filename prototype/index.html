@@ -201,8 +201,10 @@ th{color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercas
 </div></footer>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.min.js"></script>
-<script src="face.js"></script>
-<script src="demo_gallery.js"></script>
+<script src="face.js?v=3"></script>
+<script src="demo_gallery.js?v=3"></script>
+<!-- local_gallery.js exists only on your laptop (real UTP students, git-ignored); the hosted site has no such file -->
+<script src="local_gallery.js" onerror="this.remove()"></script>
 <script>
 /* ---------------- mock iBEST data (student codes only) ---------------- */
 const BOOKINGS = [
@@ -210,6 +212,7 @@ const BOOKINGS = [
   {id:"IB-2026-1042", room:"Discussion Room 3", level:"Level 2", slot:"11:00 - 13:00", by:"Student E", members:["Student E","Student F","Student G","Student H"]},
   {id:"IB-2026-1043", room:"Discussion Room 5", level:"Level 3", slot:"14:00 - 16:00", by:"Student B", members:["Student B","Student I","Student J","Student K"]},
   {id:"IB-2026-1044", room:"Meeting Room 2",    level:"Level 3", slot:"16:00 - 18:00", by:"Student L", members:["Student L","Student M","Student N","Student O"]},
+  ...(window.LOCAL_BOOKINGS || []),
 ];
 /* threshold 0.41 = chosen on the validation set by src/evaluate.py (UTP test accuracy 92.3%) */
 const CFG = {threshold:0.41, needCollect:4, needReturn:4, maxFails:3, pin:"1234"};
@@ -251,9 +254,10 @@ const ICON = {
 /* ---------------- helpers ---------------- */
 const $ = id => document.getElementById(id);
 const need = () => S.mode==="collect" ? CFG.needCollect : CFG.needReturn;
-const DEMO_FACES = window.DEMO_GALLERY || {};
+const DEMO_FACES = {...(window.DEMO_GALLERY || {}), ...(window.LOCAL_GALLERY || {})};
 const faces = code => [...(S.gallery[code] || []), ...(DEMO_FACES[code]?.faces || [])];
-const who = code => DEMO_FACES[code] ? `${DEMO_FACES[code].name} (${DEMO_FACES[code].student_id})` : code;
+const who = code => { const p = DEMO_FACES[code]; return p ? p.name + (p.student_id ? ` (${p.student_id})` : "") : code; };
+const label = code => DEMO_FACES[code] ? `${code} · ${DEMO_FACES[code].name}` : code;
 const pending = () => S.booking.members.filter(m => !(m in S.verified));
 const approved = () => Object.keys(S.verified).length >= need();
 const byStaff = () => Object.keys(S.verified).filter(m => S.verified[m]==="staff");
@@ -312,7 +316,7 @@ function bookingPanel(showStatus){
     const chip = !showStatus ? "" : staff ? '<span class="chip c-staff">✓ Staff checked</span>'
                : ok ? '<span class="chip c-ok">✓ Verified</span>'
                : S.live && !faces(m).length ? '<span class="chip c-none">Not enrolled</span>' : '<span class="chip c-wait">Waiting</span>';
-    const sub = DEMO_FACES[m] ? `<span class="sub" style="display:block;font-size:.8rem">${DEMO_FACES[m].name} · ${DEMO_FACES[m].student_id}</span>` : "";
+    const sub = DEMO_FACES[m] ? `<span class="sub" style="display:block;font-size:.8rem">${[DEMO_FACES[m].name, DEMO_FACES[m].student_id].filter(Boolean).join(" · ")}</span>` : "";
     return `<div class="member"><span class="who"><span class="av ${staff?"staff":ok?"ok":""}">${m.split(" ")[1]}</span><span>${m}${m===b.by?" (booker)":""}${sub}</span></span>${chip}</div>`;
   }).join("");
   const prog = showStatus ? `<div style="margin-top:12px;font-weight:700;color:var(--navy)">${n} of ${req} verified${byStaff().length?` <span class="sub">· ${byStaff().length} by staff card check</span>`:""}</div>
@@ -345,18 +349,18 @@ home(){
 select(){
   const collect = S.mode==="collect", out = cardsOut(), q = S.query.toLowerCase();
   let items = BOOKINGS.filter(b => out.includes(b.id) !== collect);
-  if (q) items = items.filter(b => b.room.toLowerCase().includes(q) || b.members.some(m=>m.toLowerCase().includes(q)));
+  if (q) items = items.filter(b => b.room.toLowerCase().includes(q) || b.members.some(m=>label(m).toLowerCase().includes(q)));
   const list = items.length ? items.map(b=>{ const [st,cls]=status(b); return `
     <div class="card"><div class="bk"><div class="info">
       <h3>${b.room}<span class="badge ${cls}">${st}</span></h3>
-      <div class="sub" style="margin-top:4px">${b.slot} · ${b.level} · Booked by ${b.by}<br>${b.members.join(", ")}</div></div>
+      <div class="sub" style="margin-top:4px">${b.slot} · ${b.level} · Booked by ${label(b.by)}<br>${b.members.map(label).join(", ")}</div></div>
       ${btn("Select",`pick('${b.id}')`,"primary")}</div></div>`;}).join("")
     : `<div class="msg m-info">${collect?"No matching bookings. Check iBEST or ask IRC staff.":"No room cards are out at the moment."}</div>`;
   bar(btn("Back","goHome()","","back"), "Can't find your booking? Ask staff at the counter.", "");
   return steps()+`<div class="grid"><div class="stack">
       <div class="head"><h2 class="title">${collect?"Choose your booking":"Which card are you returning?"}</h2>
       <p class="lead">${collect?"Today's bookings":"Cards currently out"} · tap <b>Select</b> on your room</p></div>
-      <input class="search" id="q" placeholder="Search room or student code, e.g. Discussion Room 3 or Student A"
+      <input class="search" id="q" placeholder="Search room, student code or name, e.g. Discussion Room 3, Student A or Sarah"
         value="${S.query}" oninput="search(this.value)">
       ${list}</div>
     <div class="stack"><div class="card"><div class="ct">What happens next</div><div class="cb"><ol class="howto">
@@ -515,7 +519,8 @@ async function syncCamera(){
   if (!want){ if (STREAM){ STREAM.getTracks().forEach(t=>t.stop()); STREAM=null; } return; }
   ensureModel();
   try {
-    if (!STREAM) STREAM = await navigator.mediaDevices.getUserMedia({video:{width:640, height:480, facingMode:"user"}});
+    // ask for HD: a face on a phone held up to the camera is small, so more pixels give a sharper face crop
+    if (!STREAM) STREAM = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280}, height:{ideal:720}, facingMode:"user"}});
     const v = $("video"); if (v && v.srcObject !== STREAM) v.srcObject = STREAM;
   } catch (e) {
     console.error(e);
