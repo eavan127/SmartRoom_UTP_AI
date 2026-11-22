@@ -539,7 +539,8 @@ def page_staff():
                 st.caption(f"Cards currently out: {', '.join(sorted(out)) or 'none'}")
             with t3:
                 with st.form("settings"):
-                    thr = st.slider("Match threshold (cosine)", 0.2, 0.8, float(cfg["threshold"]), 0.01)
+                    thr = st.slider(f"Match threshold ({cfg.get('matcher', 'cosine')} score)", 0.0, 1.0,
+                                    float(cfg["threshold"]), 0.01)
                     mc = st.number_input("Students required to collect", 1, 4, int(cfg["min_required_collect"]))
                     mr = st.number_input("Students required to return", 1, 4, int(cfg["min_required_return"]))
                     sim = st.toggle("Simulation mode (no camera)", value=cfg.get("simulation_mode", True))

@@ -4,5 +4,6 @@
   "min_required_return": 4,
   "max_failed_scans": 3,
   "simulation_mode": true,
-  "staff_pin": "1234"
+  "staff_pin": "1234",
+  "matcher": "cosine"
 }

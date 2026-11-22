@@ -26,33 +26,44 @@ data/collected_utp/student id/   ID cards (jpg, png or PDF)
 | a | `python tools/organize_collected.py` | Pairs face photo and ID card by similar filename, converts PDF/HEIC/Word to JPG, writes `data/utp/001/001_1.jpg` (ID card, only if a face is found on it), `001_2.jpg` (face photo), `info.json`. Skips anyone with no usable face photo. |
 | b | `python tools/fetch_open_dataset.py` | Downloads LFW and copies 44 public people into `data/open_lfw/` the same way, with fake names and fake student IDs (`99xxxxxx`). |
 | c | `python -m src.prepare_data` | Combines both into 100 people, aligns every face to 112x112, renames them `Student A ...`, splits 70/15/15 by person (each source split separately). Writes `data/splits/`, `data/gallery/` and `data/dataset_manifest.csv`. |
-| d | `python -m src.evaluate` | Builds 200 mock bookings of 4, picks the match threshold on the validation set (at most 1% strangers let in), reports accuracy, FAR and FRR on the test set, and saves the threshold to `mock/config.json` for the kiosk. |
+| d | `python -m src.train_verifier` | Trains **our own verification model** (see below) and saves it to `models/verifier.joblib`. About 3 minutes the first time (embeds the LFW photos once, then cached). |
+| e | `python -m src.evaluate` | Builds 200 mock bookings of 4 and compares both scorers on the same bookings: picks the cosine threshold on the validation set (at most 1% strangers let in), reports accuracy, FAR and FRR on the test set, and saves the better scorer (`matcher`) and its threshold to `mock/config.json` for the kiosk. |
 
 `--count` in step b sets how many public people to add: use 100 minus the number of UTP people step a reports.
 
-## What "training" means here
+## What is pretrained and what we trained
 
-No new network is trained. The pretrained SFace model (trained on millions of faces) turns each face into 128 numbers.
-"Training" for this project is:
+| Step | Model | Who trained it |
+|---|---|---|
+| Find the face | YuNet (OpenCV Zoo) | Pretrained, not changed |
+| Face to 128 numbers | SFace (OpenCV Zoo) | Pretrained on millions of faces, not changed |
+| Same person or not? | **Our verification model** (`src/train_verifier.py`) | **Trained by us** |
 
-1. **Enrolment**: store the 128 numbers of each person's ID photo (`1.jpg`).
-2. **Threshold**: choose how similar two faces must be to count as the same person, on the validation set.
-3. **Evaluation**: measure on the test set people the threshold never saw.
+Our verification model is a logistic regression on pair features of two embeddings (element-wise product and
+absolute difference, 256 inputs). It is trained on **19,000+ face pairs**: 1,636 LFW people who are *not* among our
+44 "student" LFW people, plus the train split (UTP ID photo vs face photo). Pairs are 1/3 genuine, 2/3 impostor
+(one random, one "hard": the most similar other person). 10% of LFW people are held out to check it.
+A 2-layer neural network (MLP) and heavier weighting of the UTP pairs were also tried; they did not do better on held-out people.
 
-Fine-tuning is only planned if accuracy falls below 90%.
+The baseline is the plain cosine similarity of the two embeddings (no training, only a threshold).
 
-## Result (12 Nov 2026)
+## Result (22 Nov 2026)
 
 Dataset: 56 UTP students (46 with a usable ID card photo) + 44 LFW people = 100. Split 70 / 15 / 15.
-Threshold chosen on validation: **0.405**. Test set, 1,600 trials:
+Same 1,600 test trials for both scorers.
 
-| | Accuracy | FAR (stranger let in) | FRR (booked student rejected) |
-|---|---|---|---|
-| All 100 people | 95.4% | 3.2% | 6.0% |
-| UTP students | 92.3% | 5.5% | 9.9% |
-| LFW (public) | 100.0% | 0.0% | 0.0% |
+| Scorer | Threshold | Accuracy | FAR (stranger let in) | FRR (booked student rejected) | UTP accuracy | UTP FAR | UTP FRR |
+|---|---|---|---|---|---|---|---|
+| Cosine (pretrained only) | 0.41 (validation) | **96.2%** | **1.6%** | 6.0% | **93.6%** | **2.7%** | 9.9% |
+| Our trained model | 0.5 (its own boundary) | 95.4% | 3.2% | 6.0% | 92.3% | 5.5% | 9.9% |
 
-Seconds per verification: 0.013 (laptop CPU).
+LFW people: 100% for both. Seconds per verification: about 0.013 (laptop CPU).
+Held-out LFW people (2,274 pairs): our model 99.1% accuracy, AUC 0.994 vs cosine 0.993.
+
+**The kiosk uses cosine**, because it was at least as good on validation and better on test.
+Our model is slightly better on held-out LFW people but slightly worse on UTP students: it learned mostly from LFW
+news photos, while UTP enrolment uses small printed ID photos, and only ~40 UTP people were available to train on.
+More UTP training pairs (the planned pilot) are the way to make it beat the baseline.
 
 Notes for the report:
 - UTP students are harder than LFW because the enrolment photo is a small, printed ID card photo, while LFW pairs are two similar news photos. The UTP figure is the one that matters for IRC.

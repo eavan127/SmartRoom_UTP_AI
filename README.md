@@ -13,6 +13,7 @@ TGB2013/TFB2073/TEB2023 Artificial Intelligence, Group 2.
 | Kiosk app wired to the face model (`app/kiosk.py`, Streamlit) | Real, for the camera stage |
 | Face detection (YuNet) + face embeddings (SFace), pretrained, from OpenCV Zoo | Real |
 | Matching only against the booked students, threshold, count each student once | Real (`src/matcher.py`) |
+| Our own trained verification model (same person or not), compared with plain cosine | Real (`src/train_verifier.py`, `src/verifier.py`) |
 | Card log CSV with student codes | Real (`logs/card_log.csv`) |
 | iBEST bookings | Simulated (`mock/bookings.json`) |
 | Face results in screenshots | Simulated (simulation mode, no faces used) |
@@ -40,10 +41,12 @@ The camera then compares each face with `data/gallery/<Student X>/*.jpg`.
 
 ```bash
 python -m src.prepare_data     # data/raw/<student>/*.jpg -> cropped, coded, split 70/15/15 by student
-python -m src.evaluate         # chooses threshold on validation, reports FAR, FRR, accuracy, s/verification on test
+python -m src.train_verifier   # trains our verification model on 19,000+ face pairs -> models/verifier.joblib
+python -m src.evaluate         # compares cosine vs our model on the same bookings: FAR, FRR, accuracy, s/verification
 ```
 
-`evaluate.py` saves the chosen threshold to `mock/config.json`, which the kiosk reads.
+`evaluate.py` saves the better scorer (`matcher`) and its threshold to `mock/config.json`, which the kiosk reads.
+Results and what is pretrained vs trained: [docs/training.md](docs/training.md).
 
 ## Screenshots
 

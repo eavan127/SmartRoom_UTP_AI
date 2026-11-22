@@ -1,12 +1,16 @@
-"""Evaluate the pretrained model with mock 4-student bookings.
+"""Evaluate face matching with mock 4-student bookings, and compare the two scorers:
+  cosine  = SFace embeddings + cosine similarity (pretrained only)
+  trained = SFace embeddings + our trained verification model (src/train_verifier.py)
 
 - Enrol: 1.jpg of each person (the ID card face, or the first face photo).  Probe: the other images.
 - People with a single photo are enrolled but never probed (they still make the matching harder).
 - Threshold is chosen on the validation split, results are reported on the test split.
 - Genuine trial: a booked student's probe must match that student.
 - Impostor trial: a non-booked student's probe must be rejected.
+- Both scorers see exactly the same bookings. The one with the lower validation FRR (at the target FAR)
+  is saved to mock/config.json as "matcher", with its threshold, for the kiosk.
 
-Usage: python -m src.evaluate [--bookings 200] [--target-far 0.01]
+Usage: python -m src.evaluate [--bookings 200] [--target-far 0.01] [--matcher both|cosine|trained]
 """
 import argparse
 import json
@@ -18,7 +22,8 @@ import cv2
 import numpy as np
 
 from src.face_model import FaceModel
-from src.matcher import CONFIG, match_face
+from src.matcher import CONFIG, load_scorer, match_face
+from src.verifier import MODEL_PATH
 
 ROOT = Path(__file__).resolve().parents[1]
 SPLITS = ROOT / "data" / "splits"
@@ -38,7 +43,7 @@ def load_split(model, split):
     return enrol, probes, source
 
 
-def trials(enrol, probes, source, n_bookings, rng):
+def trials(enrol, probes, source, n_bookings, rng, scorer):
     """Return list of (score, is_genuine, seconds, source of the probed person) over mock bookings of 4."""
     codes = list(enrol)
     out = []
@@ -48,12 +53,12 @@ def trials(enrol, probes, source, n_bookings, rng):
         for code in booked:
             for emb in probes.get(code, []):
                 t = time.perf_counter()
-                hit, score = match_face(emb, enrol, booked, -1.0)
+                hit, score = match_face(emb, enrol, booked, -1.0, scorer)
                 out.append((score if hit == code else -1.0, True, time.perf_counter() - t, source[code]))
         for code in rng.sample(outsiders, min(4, len(outsiders))):
             emb = rng.choice(probes[code])
             t = time.perf_counter()
-            _, score = match_face(emb, enrol, booked, -1.0)
+            _, score = match_face(emb, enrol, booked, -1.0, scorer)
             out.append((score, False, time.perf_counter() - t, source[code]))
     return out
 
@@ -68,17 +73,21 @@ def rates(results, thr, only=None):
     return far, frr, correct / len(results)
 
 
-def main(n_bookings, target_far, seed=0):
-    rng = random.Random(seed)
-    model = FaceModel()
-
-    val = trials(*load_split(model, "val"), n_bookings, rng)
+def choose_threshold(val, target_far):
     grid = np.linspace(0.0, 1.0, 201)
     ok = [t for t in grid if rates(val, t)[0] <= target_far]
-    thr = float(min(ok)) if ok else 0.5
-    print(f"Chosen threshold on validation (FAR <= {target_far:.0%}): {thr:.3f}")
+    return float(min(ok)) if ok else 0.5
 
-    # Time the full pipeline (detect + embed + match) on one test image
+
+def main(n_bookings, target_far, which="both", seed=0):
+    model = FaceModel()
+    names = ["cosine", "trained"] if which == "both" else [which]
+    if "trained" in names and not MODEL_PATH.exists():
+        print("No trained model yet (python -m src.train_verifier); evaluating cosine only.")
+        names = ["cosine"]
+    val_data, test_data = load_split(model, "val"), load_split(model, "test")
+
+    # Time detection + embedding on one test image (the same for both scorers)
     sample = next((SPLITS / "test").rglob("*.jpg"))
     img = cv2.imread(str(sample))
     t = time.perf_counter()
@@ -86,25 +95,39 @@ def main(n_bookings, target_far, seed=0):
         model.embed(img)
     embed_s = (time.perf_counter() - t) / 10
 
-    test = trials(*load_split(model, "test"), n_bookings, rng)
-    match_s = float(np.mean([s for _, _, s, _ in test]))
-    print(f"\nTest set ({len(test)} trials), threshold {thr:.3f}")
-    print(f"{'':16}{'accuracy':>10}{'FAR':>8}{'FRR':>8}")
-    for label, only in (("All 100 people", None), ("UTP students", "UTP survey"), ("LFW (public)", "LFW (public)")):
-        far_s, frr_s, acc_s = rates(test, thr, only)
-        print(f"{label:16}{acc_s:>10.1%}{far_s:>8.1%}{frr_s:>8.1%}")
-    print(f"Seconds per verification: {embed_s + match_s:.3f}")
-    print("FAR = stranger let in, FRR = booked student rejected")
+    results = {}
+    for name in names:
+        scorer = load_scorer(name)
+        rng = random.Random(seed)  # same bookings for every scorer
+        val = trials(*val_data, n_bookings, rng, scorer)
+        # Our model outputs a probability and already learned its boundary (0.5) from ~19,000 pairs;
+        # the 15-person validation set is too small to move it (both scorers separate it perfectly).
+        thr = 0.5 if name == "trained" else choose_threshold(val, target_far)
+        test = trials(*test_data, n_bookings, rng, scorer)
+        results[name] = dict(thr=thr, val_frr=rates(val, thr)[1], test=test,
+                             seconds=embed_s + float(np.mean([s for _, _, s, _ in test])))
 
+    for name, r in results.items():
+        print(f"\n[{name}] threshold {r['thr']:.3f} (validation FAR <= {target_far:.0%}, validation FRR {r['val_frr']:.1%})")
+        print(f"Test set ({len(r['test'])} trials)")
+        print(f"{'':16}{'accuracy':>10}{'FAR':>8}{'FRR':>8}")
+        for label, only in (("All 100 people", None), ("UTP students", "UTP survey"), ("LFW (public)", "LFW (public)")):
+            far_s, frr_s, acc_s = rates(r["test"], r["thr"], only)
+            print(f"{label:16}{acc_s:>10.1%}{far_s:>8.1%}{frr_s:>8.1%}")
+        print(f"Seconds per verification: {r['seconds']:.3f}")
+    print("\nFAR = stranger let in, FRR = booked student rejected")
+
+    best = min(results, key=lambda n: (results[n]["val_frr"], n != "cosine"))
     cfg = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
-    cfg["threshold"] = thr
+    cfg.update(matcher=best, threshold=results[best]["thr"])
     CONFIG.write_text(json.dumps(cfg, indent=2))
-    print(f"Saved threshold to {CONFIG.relative_to(ROOT)}")
+    print(f"Kiosk will use '{best}' (lower validation FRR). Saved to {CONFIG.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--bookings", type=int, default=200)
     ap.add_argument("--target-far", type=float, default=0.01)
+    ap.add_argument("--matcher", choices=["both", "cosine", "trained"], default="both")
     a = ap.parse_args()
-    main(a.bookings, a.target_far)
+    main(a.bookings, a.target_far, a.matcher)

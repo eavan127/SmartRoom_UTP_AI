@@ -26,6 +26,21 @@ def load_threshold():
     return DEFAULT_THRESHOLD
 
 
+def load_scorer(name=None):
+    """Score function for two embeddings: "cosine" (SFace only) or "trained" (our model, src/verifier.py).
+
+    Without a name, uses "matcher" from mock/config.json (set by evaluate.py); falls back to cosine
+    if the trained model file is missing.
+    """
+    if name is None:
+        name = json.loads(CONFIG.read_text()).get("matcher", "cosine") if CONFIG.exists() else "cosine"
+    if name == "trained":
+        from src.verifier import Verifier, MODEL_PATH
+        if MODEL_PATH.exists():
+            return Verifier.load().score
+    return cosine
+
+
 def build_gallery(model: FaceModel, gallery_dir=GALLERY_DIR):
     """Return {code: [embedding, ...]} from images on disk."""
     gallery = {}
@@ -51,12 +66,12 @@ def load_gallery(model: FaceModel, rebuild=False):
     return gallery
 
 
-def match_face(emb, gallery, candidates, threshold):
+def match_face(emb, gallery, candidates, threshold, scorer=cosine):
     """Best match among `candidates` only. Returns (code or None, score)."""
     best_code, best_score = None, -1.0
     for code in candidates:
         for ref in gallery.get(code, []):
-            s = cosine(emb, ref)
+            s = scorer(emb, ref)
             if s > best_score:
                 best_code, best_score = code, s
     if best_score >= threshold:
@@ -67,9 +82,10 @@ def match_face(emb, gallery, candidates, threshold):
 class Verification:
     """Tracks one booking's verification session: each student counted once."""
 
-    def __init__(self, members, min_required=None):
+    def __init__(self, members, min_required=None, scorer=None):
         self.members = list(members)
         self.min_required = min_required or len(self.members)
+        self.scorer = scorer or load_scorer()
         self.verified = {}      # code -> score
         self.attempts = 0
         self.rejects = 0
@@ -79,7 +95,7 @@ class Verification:
         if emb is None:
             self.rejects += 1
             return {"status": "no_face"}
-        code, score = match_face(emb, gallery, self.members, threshold)
+        code, score = match_face(emb, gallery, self.members, threshold, self.scorer)
         if code is None:
             self.rejects += 1
             return {"status": "no_match", "score": score}
